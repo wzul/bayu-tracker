@@ -504,9 +504,9 @@ model AuditLog {
 4. Webhook verification:
    - `verifyWebhook(signatureHeader, body)` → SHA-256 HMAC against **webhook-specific public key** (NOT the general public key)
    - **IMPORTANT:** Webhook public key is obtained at creation time via `POST /webhooks/` and stored permanently. It never changes.
-   - `GET /public_key/` is for **success callback** (redirect flow) only — different key entirely
+   - `GET /public_key/` is for **success_callback** (server-to-server callback) only — different key from webhook
    - For webhook event (`purchase.settled`): use the stored webhook public key
-   - For success callback (redirect flow): use public key from `GET /public_key/`, cache in Valkey forever (tied to secret key — only re-fetch if secret key changes)
+   - For success_callback (server-to-server payment confirmation): use public key from `GET /public_key/`, cache in Valkey forever (tied to secret key — only re-fetch if secret key changes)
 5. Commit
 
 ---
@@ -539,17 +539,18 @@ model AuditLog {
 
 **Files:**
 - Create: `src/app/api/payments/onetime/create/route.ts`
-- Create: `src/app/api/payments/onetime/callback/route.ts`
+- Create: `src/app/api/payments/onetime/success-callback/route.ts`
+- Create: `src/app/api/payments/onetime/redirect-callback/route.ts`
 - Create: `src/app/api/webhooks/chip/route.ts`
 
 **Steps:**
-1. Create route: accepts `billId`, calls CHIP `POST /purchases/`, stores `chipBillId` in Bill row, returns redirect URL. Always send `currency: "MYR"`
-2. Callback route: CHIP redirects here after payment. Show success/fail UI
-3. Webhook route: handle `purchase.settled` only:
-   - **Success callback (redirect flow)** is the definitive payment confirmation — NOT webhook `purchase.paid`
-   - `purchase.settled` → **bank recon use only**. Record `settled_at` epoch timestamp in `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account. No status change on Bill — already marked PAID by success callback
-4. Webhook signature verification using **stored webhook public key** (from `ChipWebhookConfig` table)
-5. Commit
+1. Create route: accepts `billId`, calls CHIP `POST /purchases/`, stores `chipBillId` in Bill row, returns redirect URL. Always send `currency: "MYR"`. Also set `success_callback`, `failure_callback`, `cancel_callback` URLs pointing to our API endpoints.
+2. **success_callback** route (server-to-server POST from CHIP): **DEFINITIVE** payment confirmation. Verify signature using general public key (`GET /public_key/`). On valid: mark Bill as PAID, generate receipt, send email, update `chipTransactionId`.
+3. **redirect-callback** route (`success_redirect`/`failure_redirect`/`cancel_redirect`): CHIP redirects resident's browser here. Show success/fail/cancel UI only. Do NOT process payment here — already handled by success_callback. Just show status.
+4. Webhook route: handle `purchase.settled` only:
+   - `purchase.settled` → **bank recon use only**. Record `settled_at` epoch timestamp in `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account. No status change on Bill — already marked PAID by success_callback
+5. Webhook signature verification using **stored webhook public key** (from `ChipWebhookConfig` table)
+6. Commit
 
 ---
 
@@ -589,13 +590,14 @@ model ChipSettlement {
 
 **Files:**
 - Create: `src/app/api/payments/subscription/create/route.ts`
-- Create: `src/app/api/payments/subscription/callback/route.ts`
+- Create: `src/app/api/payments/subscription/success-callback/route.ts`
+- Create: `src/app/api/payments/subscription/redirect-callback/route.ts`
 - Create: `src/app/api/payments/subscription/charge/route.ts`
 
 **Steps:**
-1. Create route: resident clicks "Daftar Auto-Debit". Call CHIP `createSubscription`. Store `chipSubscriptionId` in Subscription table
-2. Callback: show success (subscription active) or failure
-3. Webhook: CHIP confirms subscription active → update Subscription.status = ACTIVE
+1. Create route: resident clicks "Daftar Auto-Debit". Call CHIP `POST /subscriptions/`. Store `chipSubscriptionId` in Subscription table. Set `success_callback` and `success_redirect` URLs.
+2. **success_callback** route (server-to-server POST): definitive subscription confirmation. Verify signature using general public key. Update `Subscription.status = ACTIVE`.
+3. **redirect-callback** route (`success_redirect`/`failure_redirect`): browser redirect only. Show success/fail UI. Do NOT update status here.
 4. Charge route (internal API, called by cron job): for each active subscription with pending bill, call `chargeSubscription(subscriptionId, bill.totalAmount)`. On success update bill to PAID. On failure increment retry counter
 5. Commit
 
@@ -1083,7 +1085,7 @@ LHDN_API_URL=...                // Sandbox vs production URL
 
 ### Unit Tests (Jest + React Testing Library)
 - `src/lib/billing.ts` — penalty calculation, prorated calculation
-- `src/lib/chip.ts` — webhook signature verification (both public keys)
+- `src/lib/chip.ts` — success_callback signature verification (general public key) + webhook signature verification (stored webhook public key)
 - `src/lib/chip-webhook.ts` — epoch timestamp conversion
 - `src/lib/rate-limit.ts` — sliding window logic
 - `src/lib/rbac.ts` — role checks
@@ -1097,7 +1099,7 @@ LHDN_API_URL=...                // Sandbox vs production URL
 - Language switching (EN/BM)
 
 ### E2E Critical Paths
-1. Admin imports CSV → units created → bills generated on 1st → resident receives email (BM) → resident pays via FPX → webhook marks paid → `purchase.settled` recorded → receipt generated
+1. Admin imports CSV → units created → bills generated on 1st → resident receives email (BM) → resident pays via FPX → **success_callback** marks Bill PAID → `purchase.settled` webhook recorded for bank recon → receipt generated
 2. Admin sets config via Telegram → new bill uses new config
 3. Unit transfer mid-month → prorated bills generated for both owners
 4. Bank reconciliation report matches CHIP settlement timestamps to bank statement
