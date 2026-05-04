@@ -27,7 +27,7 @@
 2. Install deps: `npm install prisma @prisma/client @auth/prisma-adapter next-auth@beta bullmq nodemailer react-hook-form zod bcryptjs date-fns uuid @aws-sdk/client-s3`
 3. Install dev deps: `npm install -D @types/bcryptjs @types/nodemailer @types/uuid prisma`
 4. Init Prisma: `npx prisma init`
-5. Add `CHIP_API_URL=https://sandbox-api.chip-in.asia` to `.env.example` (sandbox only)
+5. Add `CHIP_API_URL=https://gate.chip-in.asia/api/v1/` to `.env.example` (same for sandbox + production, differentiated by secret key)
 6. Create `.env.example` with all required keys (no real values)
 7. Commit
 
@@ -478,16 +478,24 @@ model AuditLog {
 **Files:**
 - Create: `src/lib/chip.ts`
 - Create: `src/types/chip.ts`
+- Create: `src/lib/chip-webhook.ts`
 
 **Steps:**
-1. Functions:
-   - `createOneTimeBill(amount, redirectUrl, callbackUrl, metadata)` → FPX/Card one-time
+1. Base URL: `https://gate.chip-in.asia/api/v1/` (same for sandbox + production, diff by `x-api-key` secret)
+2. Currency: **MYR** only. All amounts in smallest denomination (sen/cents) — convert when calling CHIP
+3. Functions:
+   - `createOneTimeBill(amount, redirectUrl, callbackUrl, metadata)` → FPX/Card one-time bill
    - `createSubscription(amount, redirectUrl, callbackUrl, metadata)` → Card tokenization
    - `chargeSubscription(subscriptionId, amount)` → trigger monthly charge
    - `cancelSubscription(subscriptionId)` → admin unsubscribe
-   - `verifyWebhook(signature, body)` → HMAC verification
-2. Use `x-api-key` header (per user memory)
-3. Commit
+   - `getPublicKey()` → fetch from `GET /public_key/` endpoint, cache in Valkey for 24h
+4. Webhook verification:
+   - `verifyWebhook(signatureHeader, body)` → SHA-256 HMAC against CHIP public key
+   - Public key fetched from `https://gate.chip-in.asia/api/v1/public_key/`
+   - **Note:** `purchase.settled` and `success_callback` use **different public keys**
+   - For webhook events (`purchase.paid`, `purchase.settled`): use general public key
+   - For success callback (redirect flow): use public key from `purchase.public_key` field
+5. Commit
 
 ---
 
@@ -501,11 +509,43 @@ model AuditLog {
 - Create: `src/app/api/webhooks/chip/route.ts`
 
 **Steps:**
-1. Create route: accepts `billId`, calls CHIP `createOneTimeBill`, stores `chipBillId` in Bill row, returns redirect URL
+1. Create route: accepts `billId`, calls CHIP `POST /purchases/`, stores `chipBillId` in Bill row, returns redirect URL. Always send `currency: "MYR"`
 2. Callback route: CHIP redirects here after payment. Show success/fail UI
-3. Webhook route: definitive source of truth. CHIP sends `payment.paid` event → update Bill status to PAID, generate receipt, send email
-4. Verify webhook HMAC signature
+3. Webhook route: handle multiple CHIP events:
+   - `purchase.paid` → immediate confirmation. Update Bill to PAID, generate receipt, send email
+   - `purchase.settled` → **bank recon use**. Record `settled_at` epoch timestamp in a new `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account
+4. Webhook signature verification using general public key (fetched + cached)
 5. Commit
+
+---
+
+### Task 4.2a: CHIP Settlement Tracking
+
+**Objective:** Store purchase.settled events for bank reconciliation.
+
+**Files:**
+- Create: `prisma/schema.prisma` (add `ChipSettlement` model)
+- Create: `src/app/api/webhooks/chip/route.ts` (modify)
+
+**Schema addition:**
+```prisma
+model ChipSettlement {
+  id              String   @id @default(cuid())
+  chipPurchaseId  String   @unique
+  billId          String
+  bill            Bill     @relation(fields: [billId], references: [id])
+  settledAt       DateTime // Converted from CHIP epoch timestamp (seconds)
+  amount          Decimal  @db.Decimal(10, 2)
+  status          String   // "settled"
+  rawWebhook      Json     // Full webhook payload for audit
+  createdAt       DateTime @default(now())
+}
+```
+
+1. On `purchase.settled`: convert epoch timestamp (seconds since Unix epoch) to DateTime
+2. Store in `ChipSettlement` table — this becomes source of truth for "when did CHIP actually pay us"
+3. Use this data in bank reconciliation report (match bank statement entries to CHIP settlement timestamps)
+4. Commit
 
 ---
 
@@ -797,14 +837,16 @@ model AuditLog {
 
 **Steps:**
 1. Generate month-end report with columns:
-   - Date, Receipt No, Unit, Owner Name, Amount, Payment Method (CARD/FPX/CASH), CHIP Transaction ID, Status
+   - Date, Receipt No, Unit, Owner Name, Amount, Payment Method (CARD/FPX/CASH), CHIP Transaction ID, CHIP Settlement Date (from `purchase.settled` epoch timestamp), Status
 2. Group by payment method (CARD auto-debit vs FPX vs manual cash)
 3. Totals per method + grand total
-4. Highlight pending/incomplete entries
-5. Export to Excel (with formatting) + CSV
-6. Include CHIP transaction IDs for cross-reference with CHIP dashboard
-7. Upload to RustFS `reports/YYYY/MM/reconciliation.xlsx`
-8. Commit
+4. **Bank recon column:** `Settled?` — cross-reference with `ChipSettlement` table. If `purchase.settled` received = "Yes" with actual date
+5. **Epoch timestamp:** CHIP sends `settled_at` as Unix epoch in seconds. Convert to human-readable MYT before display
+6. Highlight pending/incomplete entries (paid but not yet settled)
+7. Export to Excel (with formatting) + CSV
+8. Include CHIP transaction IDs for cross-reference with CHIP dashboard
+9. Upload to RustFS `reports/YYYY/MM/reconciliation.xlsx`
+10. Commit
 
 ---
 
@@ -838,9 +880,9 @@ Required env vars:
 ```
 DATABASE_URL=postgresql://...
 REDIS_URL=redis://...
-CHIP_API_KEY=...
+CHIP_API_KEY=...                           // Sandbox key for dev, production key for prod
 CHIP_BRAND_ID=...
-CHIP_API_URL=https://sandbox-api.chip-in.asia  // Sandbox only for dev
+CHIP_API_URL=https://gate.chip-in.asia/api/v1/  // Same URL for sandbox AND production
 SMTP_HOST=...
 SMTP_PORT=587
 SMTP_USER=...
@@ -858,6 +900,10 @@ RATE_LIMIT_LOGIN_MAX=5          // Max login attempts per window
 RATE_LIMIT_LOGIN_WINDOW=900     // Window in seconds (15 min)
 RATE_LIMIT_WEBHOOK_MAX=100      // Max webhook requests per window
 RATE_LIMIT_WEBHOOK_WINDOW=60    // Window in seconds (1 min)
+ENABLE_EINVOICE=false           // LHDN MyInvois integration — off by default
+LHDN_CLIENT_ID=...              // Only needed if ENABLE_EINVOICE=true
+LHDN_CLIENT_SECRET=...          // Only needed if ENABLE_EINVOICE=true
+LHDN_API_URL=...                // Sandbox vs production URL
 ```
 
 1. Validate all at startup — fail fast if missing
@@ -916,15 +962,111 @@ RATE_LIMIT_WEBHOOK_WINDOW=60    // Window in seconds (1 min)
 
 ---
 
+## Phase 10: LHDN e-Invoice (MyInvois) — Optional
+
+> **Disabled by default.** Admin must explicitly enable via `ENABLE_EINVOICE=true` env var + valid LHDN API credentials. Only condos registered with LHDN need this.
+
+### Task 10.1: LHDN API Client & Auth
+
+**Objective:** Type-safe wrapper for LHDN MyInvois API.
+
+**Files:**
+- Create: `src/lib/lhdn.ts`
+- Create: `src/types/lhdn.ts`
+
+**Steps:**
+1. Implement OAuth2 client credentials flow for LHDN API
+2. Store access token in Valkey with expiry (auto-refresh)
+3. Sandbox vs production URL via `LHDN_API_URL` env
+4. Functions:
+   - `submitInvoice(invoiceData)` → submit e-invoice to LHDN
+   - `getInvoiceStatus(documentId)` → check validation status
+   - `cancelInvoice(documentId, reason)` → cancel submitted invoice
+5. Commit
+
+---
+
+### Task 10.2: Invoice Generation & QR Code
+
+**Objective:** Generate LHDN-compliant invoice XML/JSON before submission.
+
+**Files:**
+- Create: `src/lib/einvoice.ts`
+- Create: `src/lib/qr-code.ts`
+
+**Steps:**
+1. When `ENABLE_EINVOICE=true` and bill is marked PAID:
+   - Generate e-invoice payload with:
+     - Supplier info (condo management company)
+     - Buyer info (resident name, IC number as ID)
+     - Line items: maintenance fee + penalty + additional fee (itemized)
+     - Tax info (SST if applicable, or 0% if exempt)
+     - Total amount
+2. Submit to LHDN API
+3. On success: receive validation link + QR code URL
+4. Store `einvoiceDocumentId`, `einvoiceValidationLink`, `einvoiceQrCodeUrl` in Bill row
+5. Include QR code in receipt PDF + email
+6. Commit
+
+---
+
+### Task 10.3: e-Invoice Admin Panel
+
+**Objective:** Admin can view and manage e-invoice status.
+
+**Files:**
+- Create: `src/app/admin/einvoice/page.tsx`
+- Create: `src/app/api/admin/einvoice/route.ts`
+
+**Steps:**
+1. List all e-invoices with status (Pending, Validated, Rejected, Cancelled)
+2. Show QR code preview
+3. Download e-invoice PDF from LHDN
+4. Resubmit rejected invoices
+5. Cancel invoice if needed (with reason)
+6. Toggle e-invoice feature on/off (global setting)
+7. Commit
+
+---
+
+### Task 10.4: e-Invoice in Receipts & Notifications
+
+**Objective:** Include e-invoice QR code and validation link in resident communications.
+
+**Files:**
+- Modify: `src/lib/receipt.ts`
+- Modify: `src/lib/email-templates.ts`
+
+**Steps:**
+1. If e-invoice enabled: embed QR code in receipt PDF footer
+2. Email template includes: "E-Invoice QR Code" + validation link
+3. Resident dashboard shows "Download E-Invoice" button next to receipt
+4. Commit
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests (Jest + React Testing Library)
 - `src/lib/billing.ts` — penalty calculation, prorated calculation
-- `src/lib/chip.ts` — webhook signature verification
+- `src/lib/chip.ts` — webhook signature verification (both public keys)
+- `src/lib/chip-webhook.ts` — epoch timestamp conversion
+- `src/lib/rate-limit.ts` — sliding window logic
 - `src/lib/rbac.ts` — role checks
+- `src/lib/einvoice.ts` — LHDN payload generation (if enabled)
 
 ### Integration Tests (Playwright)
-## Open Questions / Future Considerations
+- Login flow (with rate limiting)
+- Admin CSV import
+- Resident payment flow (mock CHIP API)
+- Telegram bot commands (mock Telegram API)
+- Language switching (EN/BM)
+
+### E2E Critical Paths
+1. Admin imports CSV → units created → bills generated on 1st → resident receives email (BM) → resident pays via FPX → webhook marks paid → `purchase.settled` recorded → receipt generated
+2. Admin sets config via Telegram → new bill uses new config
+3. Unit transfer mid-month → prorated bills generated for both owners
+4. Bank reconciliation report matches CHIP settlement timestamps to bank statement
 
 All requirements confirmed and implemented in plan above.
 
@@ -941,20 +1083,10 @@ All requirements confirmed and implemented in plan above.
 
 **Week 1:** Tasks 0.1 → 0.2 → 0.3 → 0.4 → 1.1 → 1.2 → 1.3 → 1.4  
 **Week 2:** Tasks 2.1 → 2.2 → 2.3 → 2.4 → 2.5 → 2.6 → 3.4 → 3.1 → 3.2 → 3.3  
-**Week 3:** Tasks 4.1 → 4.2 → 4.3 → 4.4 → 5.1 → 5.2 → 5.3 → 5.4  
+**Week 3:** Tasks 4.1 → 4.2 → 4.2a → 4.3 → 4.4 → 5.1 → 5.2 → 5.3 → 5.4  
 **Week 4:** Tasks 6.1 → 6.2 → 7.1 → 7.2 → 7.3 → 7.4 → 7.5  
-**Week 5:** Tasks 8.1 → 8.3 → 8.2 → 9.1 → 9.2 → 9.3 → 9.4 → Testing → Polish → Deploy
-
----
-
-## Open Questions / Future Considerations
-
-1. **CHIP Sandbox:** Ensure all dev/testing uses CHIP sandbox environment
-2. **Rate Limiting:** Add rate limiting to public API routes (login, webhook)
-3. **Multi-language:** Resident portal in BM? Admin in EN/BM?
-4. **WhatsApp fallback:** If budget opens up later, WhatsApp Business API for resident notifications
-5. **Bank reconciliation:** Monthly export for treasurer to reconcile with bank statement
-6. **Unit transfer:** If owner jual rumah, admin perlu update ownership → handle mid-month proration
+**Week 5:** Tasks 8.1 → 8.3 → 8.2 → 9.1 → 9.2 → 9.3 → 9.4 → Testing → Polish → Deploy  
+**Phase 10 (LHDN e-Invoice):** Optional — implement only when condo registers with LHDN and `ENABLE_EINVOICE=true`
 
 ---
 
