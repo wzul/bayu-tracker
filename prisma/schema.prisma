@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UnitStatus {
+  ACTIVE
+  INACTIVE
+  TRANSFERRED
+}
+
+enum UserRole {
+  ADMIN
+  RESIDENT
+}
+
+enum BillStatus {
+  PENDING
+  PAID
+  OVERDUE
+  RETRY_EXHAUSTED
+  TRANSFERRED
+ CANCELLED
+}
+
+enum PaymentMethod {
+  CARD
+  FPX
+  CASH
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PENDING
+  CANCELLED
+}
+
+model Unit {
+  id             String         @id @default(cuid())
+  block          String
+  floor          String
+  unitNo         String
+  ownerName      String
+  ownerIc        String         @unique
+  email          String
+  phone          String?
+  monthlyFee     Decimal        @db.Decimal(10, 2)
+  status         UnitStatus     @default(ACTIVE)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  bills          Bill[]
+  users          User[]
+  subscriptions  Subscription[]
+  unitTransfers  UnitTransfer[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  unitId        String?
+  unit          Unit?     @relation(fields: [unitId], references: [id])
+  role          UserRole  @default(RESIDENT)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+model Bill {
+  id                   String          @id @default(cuid())
+  unitId               String
+  unit                 Unit            @relation(fields: [unitId], references: [id])
+  monthYear            String          // "2026-05"
+  baseAmount           Decimal         @db.Decimal(10, 2)
+  additionalFee        Decimal         @db.Decimal(10, 2) @default(0)
+  discount             Decimal         @db.Decimal(10, 2) @default(0)
+  adjustment           Decimal         @db.Decimal(10, 2) @default(0)
+  penaltyAmount        Decimal         @db.Decimal(10, 2) @default(0)
+  totalAmount          Decimal         @db.Decimal(10, 2)
+  dueDate              DateTime
+  status               BillStatus      @default(PENDING)
+  receiptNo            String?         @unique
+  receiptUrl           String?
+  paidAt               DateTime?
+  chipBillId           String?
+  chipTransactionId    String?
+  paymentMethod        PaymentMethod?
+  einvoiceDocumentId       String?
+  einvoiceValidationLink   String?
+  einvoiceQrCodeUrl        String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  chipSettlement       ChipSettlement?
+}
+
+model Subscription {
+  id                   String            @id @default(cuid())
+  unitId               String            @unique
+  unit                 Unit              @relation(fields: [unitId], references: [id])
+  chipSubscriptionId   String            @unique
+  status               SubscriptionStatus @default(PENDING)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+}
+
+model ChipWebhookConfig {
+  id            String   @id @default(cuid())
+  chipWebhookId String   @unique
+  publicKey     String
+  url           String
+  events        String[]
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model ChipSettlement {
+  id              String   @id @default(cuid())
+  chipPurchaseId  String   @unique
+  billId          String   @unique
+  bill            Bill     @relation(fields: [billId], references: [id])
+  settledAt       DateTime
+  amount          Decimal  @db.Decimal(10, 2)
+  status          String
+  rawWebhook      Json
+  createdAt       DateTime @default(now())
+}
+
+model Config {
+  id                    String  @id @default(cuid())
+  penaltyDays           Int     @default(20)
+  penaltyPercent        Decimal @db.Decimal(5, 2) @default(10.00)
+  retryDays             Int     @default(3)
+  retryAttemptsPerDay   Int     @default(2)
+  gatewayFeePercent     Decimal @db.Decimal(5, 2) @default(0)
+  updatedAt             DateTime @updatedAt
+}
+
+model UnitTransfer {
+  id                     String   @id @default(cuid())
+  unitId                 String
+  unit                   Unit     @relation(fields: [unitId], references: [id])
+  oldOwnerName           String
+  oldOwnerIc             String
+  oldEmail               String
+  oldPhone               String?
+  newOwnerName           String
+  newOwnerIc             String
+  newEmail               String
+  newPhone               String?
+  transferDate           DateTime
+  proratedOldOwnerBillId String?
+  proratedNewOwnerBillId String?
+  createdAt              DateTime @default(now())
+  processedBy            String
+}
+
+model TelegramAdmin {
+  id         String   @id @default(cuid())
+  telegramId String   @unique
+  name       String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  actorId   String?
+  actorType String
+  targetId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+}
