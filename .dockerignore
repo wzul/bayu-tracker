@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+
+# Next.js build output
+.next
+coverage
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+
+# Secrets / local env
+.env*
+!.env.example

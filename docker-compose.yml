@@ -1,0 +1,147 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-condo_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-condo_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - condo-network
+
+  valkey:
+    image: valkey/valkey:latest
+    restart: unless-stopped
+    # For production, use valkey.conf persistence if needed
+    # command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    volumes:
+      - valkey_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - condo-network
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    restart: unless-stopped
+    environment:
+      RUSTFS_ROOT_USER: ${RUSTFS_ACCESS_KEY:-rustfs}
+      RUSTFS_ROOT_PASSWORD: ${RUSTFS_SECRET_KEY:-rustfspass}
+      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
+      RUSTFS_DATA_DIR: /data
+    volumes:
+      - rustfs_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: server /data --console-address ":9001"
+    networks:
+      - condo-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-condo_db}?schema=public
+      REDIS_URL: redis://valkey:6379
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      CHIP_API_KEY: ${CHIP_API_KEY}
+      CHIP_BRAND_ID: ${CHIP_BRAND_ID}
+      CHIP_API_URL: ${CHIP_API_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      CRON_SECRET: ${CRON_SECRET}
+      RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX}
+      RATE_LIMIT_LOGIN_WINDOW: ${RATE_LIMIT_LOGIN_WINDOW}
+      RATE_LIMIT_WEBHOOK_MAX: ${RATE_LIMIT_WEBHOOK_MAX}
+      RATE_LIMIT_WEBHOOK_WINDOW: ${RATE_LIMIT_WEBHOOK_WINDOW}
+      ENABLE_EINVOICE: ${ENABLE_EINVOICE}
+      LHDN_CLIENT_ID: ${LHDN_CLIENT_ID}
+      LHDN_CLIENT_SECRET: ${LHDN_CLIENT_SECRET}
+      LHDN_API_URL: ${LHDN_API_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    networks:
+      - condo-network
+
+  # Backup cron sidecar (optional: run via host cron or external scheduler if desired)
+  # Keeping it as a service you can `docker compose run --rm backup` manually,
+  # or schedule via `docker exec backup /app/backup-postgres.sh` from host crontab.
+  # Alternatively, this image can be removed if host cron is preferred.
+  backup:
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "echo 'Run /app/backup-postgres.sh manually or via external cron'"]
+    volumes:
+      - ./scripts/backup-postgres.sh:/app/backup-postgres.sh:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-condo_db}
+      PG_HOST: postgres
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfs}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfspass}
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-http://rustfs:9000}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-condo-maintenance}
+      BACKUP_PREFIX: postgres-backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    networks:
+      - condo-network
+    profiles:
+      - backup
+
+volumes:
+  postgres_data:
+  valkey_data:
+  rustfs_data:
+
+networks:
+  condo-network:
+    driver: bridge
