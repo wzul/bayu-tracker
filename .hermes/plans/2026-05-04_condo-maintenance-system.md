@@ -134,6 +134,18 @@ model Subscription {
   updatedAt       DateTime @updatedAt
 }
 ```prisma
+model ChipWebhookConfig {
+  id            String   @id @default(cuid())
+  chipWebhookId String   @unique  // From POST /webhooks/ response
+  publicKey     String   // RSA public key for webhook signature verification
+  url           String   // Our webhook endpoint URL
+  events        String[] // ["purchase.paid", "purchase.settled", ...]
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+```
+
+```prisma
 model Config {
   id                  String @id @default(cuid())
   penaltyDays         Int    @default(20)
@@ -488,13 +500,35 @@ model AuditLog {
    - `createSubscription(amount, redirectUrl, callbackUrl, metadata)` → Card tokenization
    - `chargeSubscription(subscriptionId, amount)` → trigger monthly charge
    - `cancelSubscription(subscriptionId)` → admin unsubscribe
-   - `getPublicKey()` → fetch from `GET /public_key/` endpoint, cache in Valkey for 24h
+   - `getPublicKey()` → fetch from `GET /public_key/` endpoint, cache in Valkey **forever** (key tied to secret key hash — only re-fetch if secret key changes)
 4. Webhook verification:
-   - `verifyWebhook(signatureHeader, body)` → SHA-256 HMAC against CHIP public key
-   - Public key fetched from `https://gate.chip-in.asia/api/v1/public_key/`
-   - **Note:** `purchase.settled` and `success_callback` use **different public keys**
-   - For webhook events (`purchase.paid`, `purchase.settled`): use general public key
-   - For success callback (redirect flow): use public key from `purchase.public_key` field
+   - `verifyWebhook(signatureHeader, body)` → SHA-256 HMAC against **webhook-specific public key** (NOT the general public key)
+   - **IMPORTANT:** Webhook public key is obtained at creation time via `POST /webhooks/` and stored permanently. It never changes.
+   - `GET /public_key/` is for **success callback** (redirect flow) only — different key entirely
+   - For webhook events (`purchase.paid`, `purchase.settled`): use the stored webhook public key
+   - For success callback (redirect flow): use public key from `GET /public_key/`, cache in Valkey forever (tied to secret key — only re-fetch if secret key changes)
+5. Commit
+
+---
+
+### Task 4.1a: CHIP Webhook Registration
+
+**Objective:** Create CHIP webhook via API and store the public key permanently.
+
+**Files:**
+- Create: `src/scripts/setup-chip-webhook.ts`
+- Create: `src/lib/chip-webhook.ts`
+- Modify: `prisma/schema.prisma` (add `ChipWebhookConfig` model)
+
+**Steps:**
+1. Add `ChipWebhookConfig` model to schema (already defined in Task 0.3)
+2. One-time setup script:
+   - Call `POST /webhooks/` to create webhook endpoint pointing to our `/api/webhooks/chip`
+   - Events: `["purchase.paid", "purchase.settled"]`
+   - Store returned `id` and `public_key` in `ChipWebhookConfig` table
+   - The public key is **permanent** — never changes
+3. On system startup: check if `ChipWebhookConfig` row exists. If not, log error and refuse to start (webhook verification is critical)
+4. `verifyWebhook(body, signature)` function reads public key from `ChipWebhookConfig` table, validates RSA-SHA256 signature
 5. Commit
 
 ---
@@ -514,7 +548,7 @@ model AuditLog {
 3. Webhook route: handle multiple CHIP events:
    - `purchase.paid` → immediate confirmation. Update Bill to PAID, generate receipt, send email
    - `purchase.settled` → **bank recon use**. Record `settled_at` epoch timestamp in a new `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account
-4. Webhook signature verification using general public key (fetched + cached)
+4. Webhook signature verification using **stored webhook public key** (from `ChipWebhookConfig` table)
 5. Commit
 
 ---
