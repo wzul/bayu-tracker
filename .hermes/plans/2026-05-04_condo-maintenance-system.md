@@ -505,7 +505,7 @@ model AuditLog {
    - `verifyWebhook(signatureHeader, body)` → SHA-256 HMAC against **webhook-specific public key** (NOT the general public key)
    - **IMPORTANT:** Webhook public key is obtained at creation time via `POST /webhooks/` and stored permanently. It never changes.
    - `GET /public_key/` is for **success callback** (redirect flow) only — different key entirely
-   - For webhook events (`purchase.paid`, `purchase.settled`): use the stored webhook public key
+   - For webhook event (`purchase.settled`): use the stored webhook public key
    - For success callback (redirect flow): use public key from `GET /public_key/`, cache in Valkey forever (tied to secret key — only re-fetch if secret key changes)
 5. Commit
 
@@ -524,7 +524,7 @@ model AuditLog {
 1. Add `ChipWebhookConfig` model to schema (already defined in Task 0.3)
 2. One-time setup script:
    - Call `POST /webhooks/` to create webhook endpoint pointing to our `/api/webhooks/chip`
-   - Events: `["purchase.paid", "purchase.settled"]`
+   - Events: `["purchase.settled"]` only. Do NOT subscribe to `purchase.paid` — it duplicates success callback
    - Store returned `id` and `public_key` in `ChipWebhookConfig` table
    - The public key is **permanent** — never changes
 3. On system startup: check if `ChipWebhookConfig` row exists. If not, log error and refuse to start (webhook verification is critical)
@@ -545,9 +545,9 @@ model AuditLog {
 **Steps:**
 1. Create route: accepts `billId`, calls CHIP `POST /purchases/`, stores `chipBillId` in Bill row, returns redirect URL. Always send `currency: "MYR"`
 2. Callback route: CHIP redirects here after payment. Show success/fail UI
-3. Webhook route: handle multiple CHIP events:
-   - `purchase.paid` → immediate confirmation. Update Bill to PAID, generate receipt, send email
-   - `purchase.settled` → **bank recon use**. Record `settled_at` epoch timestamp in a new `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account
+3. Webhook route: handle `purchase.settled` only:
+   - **Success callback (redirect flow)** is the definitive payment confirmation — NOT webhook `purchase.paid`
+   - `purchase.settled` → **bank recon use only**. Record `settled_at` epoch timestamp in `ChipSettlement` table. This is when CHIP actually transfers money to condo's bank account. No status change on Bill — already marked PAID by success callback
 4. Webhook signature verification using **stored webhook public key** (from `ChipWebhookConfig` table)
 5. Commit
 
