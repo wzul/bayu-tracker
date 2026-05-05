@@ -47,8 +47,8 @@ services:
     volumes:
       - rustfs_data:/data
     ports:
-      - "19000:9000"
-      - "19001:9001"
+      - "9003:9000"
+      - "9004:9001"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9000/minio/health/live"]
       interval: 15s
