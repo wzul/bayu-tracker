@@ -137,7 +137,7 @@ services:
       - backup
 
 volumes:
-  postgres_data:
+  pg_data:
   valkey_data:
   rustfs_data:
 
