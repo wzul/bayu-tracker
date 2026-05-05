@@ -22,7 +22,6 @@ interface Unit {
   unitNo: string;
   ownerName: string;
   ownerIc: string;
-  email: string;
   phone: string | null;
   monthlyFee: number;
   status: string;
@@ -74,9 +73,23 @@ export default function UnitDetailPage({ params }: { params: { id: string } }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 border-t pt-6">
           <div><p className="text-sm text-gray-500">Nama</p><p className="font-medium">{unit.ownerName}</p></div>
           <div><p className="text-sm text-gray-500">No KP</p><p className="font-medium">{unit.ownerIc}</p></div>
-          <div><p className="text-sm text-gray-500">Email</p><p className="font-medium">{unit.email}</p></div>
           <div><p className="text-sm text-gray-500">Telefon</p><p className="font-medium">{unit.phone || "-"}</p></div>
+          <div><p className="text-sm text-gray-500">Yuran</p><p className="font-medium">RM {Number(unit.monthlyFee).toFixed(2)}</p></div>
         </div>
+
+        {unit.users.length > 0 && (
+          <div className="mt-6 border-t pt-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Akaun Pengguna</h3>
+            <div className="space-y-1">
+              {unit.users.map((u) => (
+                <div key={u.id} className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-600">{u.email}</span>
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800">{u.role}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

@@ -10,11 +10,11 @@ interface Unit {
   unitNo: string;
   ownerName: string;
   ownerIc: string;
-  email: string;
   phone: string | null;
   monthlyFee: number;
   status: string;
   _count: { bills: number; users: number };
+  users?: { email: string }[];
 }
 
 export default function UnitsPage() {
@@ -122,7 +122,6 @@ export default function UnitsPage() {
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Unit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Pemilik</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">IC</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Email</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Yuran</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Status</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Bil</th>
@@ -131,9 +130,9 @@ export default function UnitsPage() {
           </thead>
           <tbody className="divide-y">
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">Memuat...</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Memuat...</td></tr>
             ) : units.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">Tiada unit dijumpai</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Tiada unit dijumpai</td></tr>
             ) : (
               units.map((u) => (
                 <tr key={u.id} className="hover:bg-gray-50">
@@ -142,7 +141,6 @@ export default function UnitsPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">{u.ownerName}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">{u.ownerIc}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{u.email}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-800">RM {Number(u.monthlyFee).toFixed(2)}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-block px-2 py-1 text-xs rounded-full ${statusColor(u.status)}`}>
@@ -218,7 +216,7 @@ function UnitModal({ unit, onClose, onSaved }: {
     unitNo: unit?.unitNo ?? "",
     ownerName: unit?.ownerName ?? "",
     ownerIc: unit?.ownerIc ?? "",
-    email: unit?.email ?? "",
+    email: unit?.users?.[0]?.email ?? "",
     phone: unit?.phone ?? "",
     monthlyFee: unit?.monthlyFee ?? 120,
     createUser: true,
@@ -262,7 +260,7 @@ function UnitModal({ unit, onClose, onSaved }: {
           </div>
           <input required placeholder="Nama Pemilik" className="w-full px-3 py-2 border rounded" value={form.ownerName} onChange={e => setForm(f => ({ ...f, ownerName: e.target.value }))} />
           <input required placeholder="No KP" className="w-full px-3 py-2 border rounded" value={form.ownerIc} onChange={e => setForm(f => ({ ...f, ownerIc: e.target.value }))} />
-          <input required type="email" placeholder="Email" className="w-full px-3 py-2 border rounded" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+          <input required type="email" placeholder="Emel Pengguna" className="w-full px-3 py-2 border rounded" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           <input placeholder="Telefon" className="w-full px-3 py-2 border rounded" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
           <input required type="number" min="0" step="0.01" placeholder="Yuran Bulanan" className="w-full px-3 py-2 border rounded" value={form.monthlyFee} onChange={e => setForm(f => ({ ...f, monthlyFee: Number(e.target.value) }))} />
           {!unit && (

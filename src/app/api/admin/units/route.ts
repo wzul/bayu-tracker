@@ -34,7 +34,6 @@ export async function GET(request: Request) {
       where.OR = [
         { ownerName: { contains: search, mode: "insensitive" } },
         { ownerIc: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
         { unitNo: { contains: search, mode: "insensitive" } },
       ];
     }
@@ -80,7 +79,6 @@ export async function POST(request: Request) {
         unitNo: data.unitNo,
         ownerName: data.ownerName,
         ownerIc: data.ownerIc,
-        email: data.email,
         phone: data.phone,
         monthlyFee: data.monthlyFee,
         status: "ACTIVE",

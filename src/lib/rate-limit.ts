@@ -53,7 +53,7 @@ async function redisLimit(key: string, windowMs: number, max: number): Promise<R
 
 export async function rateLimit(
   identifier: string,
-  type: "login" | "webhook" | "api"
+  type: "login" | "webhook" | "api" | "forgot_password" | "reset_password"
 ): Promise<RateLimitResult> {
   let windowMs: number;
   let max: number;
@@ -66,6 +66,14 @@ export async function rateLimit(
     case "webhook":
       max = parseInt(process.env.RATE_LIMIT_WEBHOOK_MAX || "100", 10);
       windowMs = parseInt(process.env.RATE_LIMIT_WEBHOOK_WINDOW || "60", 10) * 1000;
+      break;
+    case "forgot_password":
+      max = 3;
+      windowMs = 300_000; // 5 minutes
+      break;
+    case "reset_password":
+      max = 5;
+      windowMs = 300_000;
       break;
     case "api":
       max = 60;

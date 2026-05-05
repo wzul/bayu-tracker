@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     const chipData = await chipCreateSubscription({
       client: {
-        email: unit.email,
+        email: session.user.email,
         full_name: unit.ownerName,
       },
       subscription: {

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 const updateSchema = z.object({
   phone: z.string().optional(),
+  email: z.string().email().optional(),
 });
 
 export async function GET() {
@@ -17,6 +18,7 @@ export async function GET() {
         id: session.user.id,
         email: session.user.email,
         role: session.user.role,
+        twoFactorEnabled: session.user.twoFactorEnabled,
       },
       unit: session.user.unit,
     });
@@ -32,6 +34,17 @@ export async function PATCH(request: Request) {
 
     const body = await request.json();
     const data = updateSchema.parse(body);
+
+    if (data.email !== undefined) {
+      const existing = await db.user.findUnique({ where: { email: data.email } });
+      if (existing && existing.id !== session.user.id) {
+        return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      }
+      await db.user.update({
+        where: { id: session.user.id },
+        data: { email: data.email },
+      });
+    }
 
     if (session.user.unitId && data.phone !== undefined) {
       await db.unit.update({

@@ -35,10 +35,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const data = updateSchema.parse(body);
     const { id } = await params;
     
+    const { email, ...unitData } = data;
     const unit = await db.unit.update({
       where: { id },
-      data,
+      data: unitData,
     });
+    if (email) {
+      await db.user.updateMany({
+        where: { unitId: id },
+        data: { email },
+      });
+    }
     return NextResponse.json({ success: true, unit });
   } catch (err: any) {
     if (err.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

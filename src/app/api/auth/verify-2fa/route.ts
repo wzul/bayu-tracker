@@ -1,34 +1,23 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
-import { rateLimit, getClientIP } from "@/lib/rate-limit";
+import speakeasy from "speakeasy";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
 
-const loginSchema = z.object({
+const schema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  code: z.string().length(6),
   rememberMe: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
   try {
-    const ip = getClientIP(request);
-    const limit = await rateLimit(ip, "login");
-    if (!limit.allowed) {
-      return NextResponse.json(
-        { error: "Too many login attempts. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(Math.ceil((limit.resetAt - Date.now()) / 1000)) } }
-      );
-    }
-
     const body = await request.json();
-    const { email, password, rememberMe } = loginSchema.parse(body);
+    const { email, password, code, rememberMe } = schema.parse(body);
 
-    const user = await db.user.findUnique({
-      where: { email },
-    });
-
+    const user = await db.user.findUnique({ where: { email } });
     if (!user) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
@@ -38,8 +27,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    if (user.twoFactorEnabled) {
-      return NextResponse.json({ requires2FA: true });
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      return NextResponse.json({ error: "2FA not enabled" }, { status: 400 });
+    }
+
+    const valid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: "base32",
+      token: code,
+      window: 1,
+    });
+
+    if (!valid) {
+      return NextResponse.json({ error: "Invalid 2FA code" }, { status: 401 });
     }
 
     const { token, expiresAt } = await createSession(user.id, rememberMe === true);
@@ -53,11 +53,11 @@ export async function POST(request: Request) {
     });
 
     return response;
-  } catch (error) {
-    console.error("Login error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return NextResponse.json({ error: err.errors }, { status: 400 });
+    }
+    console.error("Verify 2FA error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

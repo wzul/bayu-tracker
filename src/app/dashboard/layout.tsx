@@ -17,6 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-800">{t("dashboard", lang)}</Link>
             <Link href="/dashboard/history" className="text-sm text-gray-600 hover:text-gray-800">{t("history", lang)}</Link>
             <Link href="/dashboard/profile" className="text-sm text-gray-600 hover:text-gray-800">{t("profile", lang)}</Link>
+            <Link href="/dashboard/security" className="text-sm text-gray-600 hover:text-gray-800">{lang === "ms" ? "Keselamatan" : "Security"}</Link>
           </div>
           <div className="flex items-center gap-4">
             <LanguageSwitcher />

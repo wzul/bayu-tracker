@@ -16,6 +16,7 @@ export default function Sidebar() {
     { href: "/admin/bills", label: t("bills", lang), icon: "🧾" },
     { href: "/admin/payments", label: t("payments", lang), icon: "💰" },
     { href: "/admin/reports", label: t("reports", lang), icon: "📈" },
+    { href: "/admin/security", label: lang === "ms" ? "Keselamatan" : "Security", icon: "🔐" },
     { href: "/admin/settings", label: t("settings", lang), icon: "⚙️" },
   ];
 

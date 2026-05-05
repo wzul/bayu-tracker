@@ -24,7 +24,7 @@ enum BillStatus {
   OVERDUE
   RETRY_EXHAUSTED
   TRANSFERRED
- CANCELLED
+  CANCELLED
 }
 
 enum PaymentMethod {
@@ -46,7 +46,6 @@ model Unit {
   unitNo         String
   ownerName      String
   ownerIc        String         @unique
-  email          String
   phone          String?
   monthlyFee     Decimal        @db.Decimal(10, 2)
   status         UnitStatus     @default(ACTIVE)
@@ -59,15 +58,17 @@ model Unit {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  unitId        String?
-  unit          Unit?     @relation(fields: [unitId], references: [id])
-  role          UserRole  @default(RESIDENT)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  unitId           String?
+  unit             Unit?     @relation(fields: [unitId], references: [id])
+  role             UserRole  @default(RESIDENT)
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  sessions         Session[]
 }
 
 model Session {

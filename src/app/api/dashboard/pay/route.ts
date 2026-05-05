@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         brand_id: chipBrandId,
         client: {
-          email: bill.unit.email,
+          email: session.user.email,
           full_name: bill.unit.ownerName,
         },
         purchase: {

@@ -71,17 +71,26 @@ export async function POST(request: Request) {
         continue;
       }
 
-      await db.unit.create({
+      const unit = await db.unit.create({
         data: {
           block: row.block,
           floor: row.floor,
           unitNo: row.unitNo,
           ownerName: row.ownerName,
           ownerIc: row.ownerIc,
-          email: row.email,
           phone: row.phone,
           monthlyFee: row.monthlyFee,
           status: "ACTIVE",
+        },
+      });
+
+      const passwordHash = await bcrypt.hash("resident123", 12);
+      await db.user.create({
+        data: {
+          email: row.email,
+          passwordHash,
+          role: "RESIDENT",
+          unitId: unit.id,
         },
       });
       created++;

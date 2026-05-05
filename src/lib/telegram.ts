@@ -1,5 +1,12 @@
 import { db } from "./db";
 import { sendEmail } from "./email";
+import {
+  setTelegramOtp,
+  verifyTelegramOtp,
+  getTelegramOtpEmail,
+  hasTelegramOtp,
+  generateOtp,
+} from "./otp";
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN;
 
@@ -11,14 +18,8 @@ interface UserSession {
   role: string;
   authenticatedAt: Date;
 }
-interface OtpState {
-  code: string;
-  email: string;
-  expiresAt: Date;
-}
 
 const userSessions = new Map<number, UserSession>();
-const otpStore = new Map<number, OtpState>();
 
 // Multi-step flow state (e.g. awaiting unit search input)
 interface ChatState {
@@ -95,10 +96,6 @@ function requireAuth(chatId: number): UserSession | null {
     return null;
   }
   return session;
-}
-
-function generateOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 // ── Inline keyboards ─────────────────────────────────────────────────
@@ -339,7 +336,7 @@ async function handleMessage(msg: any) {
   }
 
   // OTP reply handling
-  if (otpStore.has(chatId)) {
+  if (hasTelegramOtp(chatId)) {
     await handleOtpReply(chatId, text);
     return;
   }
@@ -491,25 +488,24 @@ async function handleMessage(msg: any) {
 
 // ── Auth flows ───────────────────────────────────────────────────────
 async function startOtpFlow(chatId: number) {
-  otpStore.set(chatId, { code: "", email: "", expiresAt: new Date(Date.now() + OTP_TTL_MS) });
+  setTelegramOtp(chatId, "");
   await tgSend(chatId, "🔐 <b>Log Masuk</b>\n\nSila masukkan alamat emel anda:");
 }
 
 async function handleOtpReply(chatId: number, text: string) {
-  const state = otpStore.get(chatId);
-  if (!state) return;
+  const email = getTelegramOtpEmail(chatId);
 
   // Step 1: email input
-  if (!state.email) {
-    const email = text.trim().toLowerCase();
-    if (!email.includes("@") || !email.includes(".")) {
+  if (!email) {
+    const inputEmail = text.trim().toLowerCase();
+    if (!inputEmail.includes("@") || !inputEmail.includes(".")) {
       await tgSend(chatId, "❌ Emel tidak sah. Sila masukkan emel yang betul.");
       return;
     }
 
     // Check if email exists in system
     const user = await db.user.findUnique({
-      where: { email },
+      where: { email: inputEmail },
       include: { unit: true },
     });
     if (!user) {
@@ -518,10 +514,10 @@ async function handleOtpReply(chatId: number, text: string) {
     }
 
     const code = generateOtp();
-    otpStore.set(chatId, { code, email, expiresAt: new Date(Date.now() + OTP_TTL_MS) });
+    setTelegramOtp(chatId, inputEmail, code);
 
     const sent = await sendEmail({
-      to: email,
+      to: inputEmail,
       subject: "Kod OTP — Bayu Condo",
       html: `<h2>Kod Pengesahan Bayu Condo</h2>
         <p>Kod OTP anda: <strong style="font-size:24px; letter-spacing:4px;">${code}</strong></p>
@@ -533,35 +529,27 @@ async function handleOtpReply(chatId: number, text: string) {
 
     if (!sent) {
       await tgSend(chatId, "❌ Gagal menghantar emel. Sila cuba sebentar lagi.");
-      otpStore.delete(chatId);
       return;
     }
 
-    await tgSend(chatId, `📧 Kod 6-digit telah dihantar ke <b>${email}</b>.\n\nSila masukkan kod tersebut:`);
+    await tgSend(chatId, `📧 Kod 6-digit telah dihantar ke <b>${inputEmail}</b>.\n\nSila masukkan kod tersebut:`);
     return;
   }
 
   // Step 2: OTP verification
   const inputCode = text.trim();
-  if (Date.now() > state.expiresAt.getTime()) {
-    await tgSend(chatId, "⏰ Kod OTP telah tamat tempoh. Sila /login semula.");
-    otpStore.delete(chatId);
-    return;
-  }
-
-  if (inputCode !== state.code) {
-    await tgSend(chatId, "❌ Kod OTP salah. Sila cuba lagi:");
+  if (!verifyTelegramOtp(chatId, inputCode)) {
+    await tgSend(chatId, "❌ Kod OTP salah atau telah tamat tempoh. Sila cuba lagi:");
     return;
   }
 
   // Success
   const user = await db.user.findUnique({
-    where: { email: state.email },
+    where: { email },
     include: { unit: true },
   });
   if (!user) {
     await tgSend(chatId, "❌ Ralat pengesahan. Sila cuba lagi.");
-    otpStore.delete(chatId);
     return;
   }
 
@@ -572,7 +560,6 @@ async function handleOtpReply(chatId: number, text: string) {
     role: user.role,
     authenticatedAt: new Date(),
   });
-  otpStore.delete(chatId);
 
   await tgSend(chatId, `✅ Log masuk berjaya! Selamat datang, <b>${user.unit?.ownerName || user.email}</b>.`, {
     reply_markup: {
@@ -781,7 +768,7 @@ async function cmdPayBill(chatId: number, billId: string, session: UserSession) 
     body: JSON.stringify({
       brand_id: chipBrandId,
       client: {
-        email: bill.unit.email,
+        email: session.email,
         full_name: bill.unit.ownerName,
       },
       purchase: {
@@ -900,13 +887,13 @@ async function cmdUnit(query: string, chatId: number) {
   if (parts.length === 3) {
     unit = await db.unit.findFirst({
       where: { block: parts[0], floor: parts[1], unitNo: parts[2] },
-      include: { bills: { orderBy: { monthYear: "desc" } } },
+      include: { bills: { orderBy: { monthYear: "desc" } }, users: true },
     });
   }
   if (!unit) {
     unit = await db.unit.findFirst({
       where: { ownerName: { contains: query, mode: "insensitive" } },
-      include: { bills: { orderBy: { monthYear: "desc" } } },
+      include: { bills: { orderBy: { monthYear: "desc" } }, users: true },
     });
   }
   if (!unit) {
@@ -917,7 +904,7 @@ async function cmdUnit(query: string, chatId: number) {
   let text =
     `🏠 <b>Unit ${unit.block}-${unit.floor}-${unit.unitNo}</b>\n` +
     `👤 ${unit.ownerName}\n` +
-    `📧 ${unit.email}\n` +
+    `📧 ${unit.users[0]?.email || "-"}\n` +
     `💰 Yuran: RM ${Number(unit.monthlyFee).toFixed(2)}\n\n` +
     `⚠️ <b>Bil Tertunggak: ${pending.length}</b>\n`;
   pending.slice(0, 5).forEach((b) => {

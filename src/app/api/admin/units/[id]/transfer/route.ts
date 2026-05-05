@@ -114,7 +114,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         unitId: id,
         oldOwnerName: unit.ownerName,
         oldOwnerIc: unit.ownerIc,
-        oldEmail: unit.email,
+        oldEmail: unit.users[0]?.email || "",
         oldPhone: unit.phone,
         newOwnerName: data.newOwnerName,
         newOwnerIc: data.newOwnerIc,
@@ -133,7 +133,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       data: {
         ownerName: data.newOwnerName,
         ownerIc: data.newOwnerIc,
-        email: data.newEmail,
         phone: data.newPhone,
         status: "ACTIVE",
       },
