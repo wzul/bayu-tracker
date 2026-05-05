@@ -29,7 +29,11 @@ export async function chipGetPurchase(id: string) {
   const res = await fetch(`${CHIP_API_URL}purchases/${id}/`, {
     headers: authHeaders(),
   });
-  return res.json();
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || `CHIP get purchase failed: ${res.status}`);
+  }
+  return data;
 }
 
 export async function chipCreateSubscription(payload: any) {

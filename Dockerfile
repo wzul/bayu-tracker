@@ -17,7 +17,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 # Prisma generate + build needs a valid-looking DATABASE_URL but doesn't need to connect
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
-ENV NEXT_PUBLIC_APP_URL="https://bayu.wanzul-hosting.com"
 ENV CHIP_API_URL="https://gate.chip-in.asia/api/v1/"
 
 # Generate Prisma client

@@ -26,11 +26,21 @@ export async function POST(request: Request) {
       }
     }
 
-    const body = JSON.parse(bodyText);
-    const event = body.event;
-    const purchase = body.purchase;
+    let body: any;
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
+      console.error("[webhook] Invalid JSON body:", bodyText.slice(0, 500));
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const event = body.event || body.event_type || "";
+    const purchase = body.purchase || body.data?.purchase || {};
+
+    console.log("[webhook] CHIP event received:", event, "purchase.status:", purchase.status, "purchase.id:", purchase.id);
 
     if (!purchase?.id) {
+      console.error("[webhook] No purchase.id in body:", JSON.stringify(body).slice(0, 500));
       return NextResponse.json({ error: "Invalid webhook" }, { status: 400 });
     }
 
@@ -72,8 +82,12 @@ export async function POST(request: Request) {
     }
 
     // Handle purchase.paid — mark bills as paid
-    if (event === "purchase.paid" || purchase.status === "paid") {
-      await db.bill.updateMany({
+    // CHIP may send event as "purchase.paid" or status as "paid" / "closed" / "success"
+    const isPaidEvent = event === "purchase.paid" || event === "purchase.successful" || event === "purchase.completed";
+    const isPaidStatus = purchase.status === "paid" || purchase.status === "closed" || purchase.status === "successful" || purchase.status === "completed";
+
+    if (isPaidEvent || isPaidStatus) {
+      const result = await db.bill.updateMany({
         where: { chipBillId: chipPurchaseId, status: { not: "PAID" } },
         data: {
           status: "PAID",
@@ -83,13 +97,11 @@ export async function POST(request: Request) {
         },
       });
 
-      const updatedCount = await db.bill.count({
-        where: { chipBillId: chipPurchaseId, status: "PAID" },
-      });
-      console.log(`[webhook] CHIP purchase ${chipPurchaseId}: ${updatedCount} bills marked paid`);
-      return NextResponse.json({ success: true, billsUpdated: updatedCount });
+      console.log(`[webhook] CHIP purchase ${chipPurchaseId}: ${result.count} bills marked paid`);
+      return NextResponse.json({ success: true, billsUpdated: result.count });
     }
 
+    console.log(`[webhook] CHIP event ignored: ${event}, status: ${purchase.status}`);
     return NextResponse.json({ success: true, event: event || "unknown" });
   } catch (err) {
     console.error("Webhook error:", err);

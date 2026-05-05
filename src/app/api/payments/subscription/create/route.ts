@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     });
     if (!unit) return NextResponse.json({ error: "Unit not found" }, { status: 404 });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bayu.wanzul-hosting.com";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
     const chipData = await chipCreateSubscription({
       client: {

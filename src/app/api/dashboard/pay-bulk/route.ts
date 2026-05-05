@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
     const chipSecret = process.env.CHIP_SECRET_KEY;
     const chipBrandId = process.env.CHIP_BRAND_ID;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bayu.wanzul-hosting.com";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const chipApiUrl = process.env.CHIP_API_URL || "https://gate.chip-in.asia/api/v1/";
 
     if (!chipSecret || !chipBrandId) {

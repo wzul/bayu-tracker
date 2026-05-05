@@ -1,7 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -9,17 +8,63 @@ function PaymentSuccessContent() {
   const searchParams = useSearchParams();
   const billId = searchParams.get("bill");
   const [bill, setBill] = useState<any>(null);
+  const [verifying, setVerifying] = useState(true);
+  const [verifyResult, setVerifyResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (billId) {
+      // Fetch current bill status
       fetch("/api/dashboard/bills")
         .then((r) => r.json())
         .then((data) => {
           const found = data.bills?.find((b: any) => b.id === billId);
           setBill(found);
-        });
+
+          // If not paid yet, verify with CHIP API (webhook fallback)
+          if (found && found.status !== "PAID") {
+            verifyPayment(billId);
+          } else {
+            setVerifying(false);
+          }
+        })
+        .catch(() => setVerifying(false));
+    } else {
+      setVerifying(false);
     }
   }, [billId]);
+
+  async function verifyPayment(id: string, attempt = 1) {
+    try {
+      const res = await fetch("/api/dashboard/payment/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ billId: id }),
+      });
+      const data = await res.json();
+
+      if (data.status === "PAID") {
+        setVerifyResult("Pembayaran disahkan.");
+        // Refresh bill data
+        const refresh = await fetch("/api/dashboard/bills");
+        const refreshed = await refresh.json();
+        const updated = refreshed.bills?.find((b: any) => b.id === id);
+        setBill(updated);
+      } else if (attempt < 3) {
+        // Retry after 2 seconds
+        setTimeout(() => verifyPayment(id, attempt + 1), 2000);
+        return;
+      } else {
+        setVerifyResult("Sila semak semula status pembayaran di dashboard.");
+      }
+    } catch {
+      if (attempt < 3) {
+        setTimeout(() => verifyPayment(id, attempt + 1), 2000);
+        return;
+      }
+      setVerifyResult("Sila semak semula status pembayaran di dashboard.");
+    }
+    setVerifying(false);
+  }
 
   return (
     <div className="p-8 max-w-2xl mx-auto text-center">
@@ -28,6 +73,18 @@ function PaymentSuccessContent() {
         <h1 className="text-2xl font-bold text-gray-800 mb-2">Pembayaran Berjaya</h1>
         <p className="text-gray-500 mb-6">Terima kasih atas pembayaran anda.</p>
 
+        {verifying && (
+          <div className="bg-blue-50 rounded-lg p-4 mb-6">
+            <p className="text-blue-700">Mengesahkan pembayaran...</p>
+          </div>
+        )}
+
+        {verifyResult && !verifying && (
+          <div className={`rounded-lg p-4 mb-6 ${verifyResult.includes("disahkan") ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
+            <p>{verifyResult}</p>
+          </div>
+        )}
+
         {bill && (
           <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
             <p className="text-sm text-gray-500">Bulan</p>
@@ -35,6 +92,10 @@ function PaymentSuccessContent() {
             <p className="text-sm text-gray-500 mt-2">Jumlah</p>
             <p className="font-medium text-lg text-green-600">
               RM {Number(bill.totalAmount).toFixed(2)}
+            </p>
+            <p className="text-sm text-gray-500 mt-2">Status</p>
+            <p className={`font-medium ${bill.status === "PAID" ? "text-green-600" : "text-yellow-600"}`}>
+              {bill.status === "PAID" ? "Telah Dibayar" : bill.status}
             </p>
           </div>
         )}
