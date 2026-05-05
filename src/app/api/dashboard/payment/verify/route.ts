@@ -55,13 +55,20 @@ export async function POST(request: Request) {
     const isPaid = chipStatus === "paid" || chipStatus === "closed" || chipStatus === "successful" || chipStatus === "completed";
 
     if (isPaid) {
+      const paymentMethod = chipPurchase.payment_method?.toUpperCase?.() === "FPX" ? "FPX" : "CARD";
+      const receiptUrl = chipPurchase.receipt_url || chipPurchase.checkout_url || null;
+      const receiptNo = chipPurchase.receipt_no || chipPurchase.id || null;
+      const transactionId = chipPurchase.transaction?.id || chipPurchase.id || null;
+
       await db.bill.update({
         where: { id: bill.id },
         data: {
           status: "PAID",
           paidAt: new Date(),
-          chipTransactionId: bill.chipBillId,
-          paymentMethod: "CARD",
+          chipTransactionId: transactionId,
+          paymentMethod,
+          receiptUrl,
+          receiptNo: receiptNo ? String(receiptNo) : null,
         },
       });
       console.log(`[verify] Bill ${bill.id} marked PAID via CHIP API check (status: ${chipStatus})`);

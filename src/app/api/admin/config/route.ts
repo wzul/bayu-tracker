@@ -5,12 +5,12 @@ import { z } from "zod";
 import { logAudit } from "@/lib/audit";
 
 const configSchema = z.object({
-  penaltyDays: z.number().min(0),
-  penaltyPercent: z.number().min(0),
-  retryDays: z.number().min(0),
-  retryAttemptsPerDay: z.number().min(0),
-  gatewayFeePercent: z.number().min(0),
-  gatewayFeeFixed: z.number().min(0),
+  penaltyDays: z.coerce.number().min(0),
+  penaltyPercent: z.coerce.number().min(0),
+  retryDays: z.coerce.number().min(0),
+  retryAttemptsPerDay: z.coerce.number().min(0),
+  gatewayFeePercent: z.coerce.number().min(0),
+  gatewayFeeFixed: z.coerce.number().min(0),
 });
 
 export async function GET() {

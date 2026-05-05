@@ -87,13 +87,20 @@ export async function POST(request: Request) {
     const isPaidStatus = purchase.status === "paid" || purchase.status === "closed" || purchase.status === "successful" || purchase.status === "completed";
 
     if (isPaidEvent || isPaidStatus) {
+      const paymentMethod = purchase.payment_method?.toUpperCase?.() === "FPX" ? "FPX" : "CARD";
+      const receiptUrl = purchase.receipt_url || purchase.checkout_url || null;
+      const receiptNo = purchase.receipt_no || purchase.id || null;
+      const transactionId = purchase.transaction?.id || purchase.id || null;
+
       const result = await db.bill.updateMany({
         where: { chipBillId: chipPurchaseId, status: { not: "PAID" } },
         data: {
           status: "PAID",
           paidAt: new Date(),
-          chipTransactionId: chipPurchaseId,
-          paymentMethod: "CARD",
+          chipTransactionId: transactionId,
+          paymentMethod,
+          receiptUrl,
+          receiptNo: receiptNo ? String(receiptNo) : null,
         },
       });
 
