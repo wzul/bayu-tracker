@@ -29,7 +29,27 @@ export async function POST(request: Request) {
     
     if (!bill) return NextResponse.json({ error: "Bill not found" }, { status: 404 });
     if (bill.status === "PAID") return NextResponse.json({ error: "Bill already paid" }, { status: 409 });
-    
+
+    // Apply gateway fee at payment time
+    const config = await db.config.findFirst();
+    const fixedFeeInRM = Number(config?.gatewayFeeFixed ?? 0) / 100;
+    const percentFee = Number(bill.baseAmount) * (Number(config?.gatewayFeePercent ?? 0) / 100);
+    const newAdditionalFee = percentFee + fixedFeeInRM;
+    const newTotalAmount =
+      Number(bill.baseAmount) +
+      newAdditionalFee -
+      Number(bill.discount) +
+      Number(bill.adjustment) +
+      Number(bill.penaltyAmount);
+
+    await db.bill.update({
+      where: { id: bill.id },
+      data: {
+        additionalFee: newAdditionalFee,
+        totalAmount: newTotalAmount,
+      },
+    });
+
     const chipSecret = process.env.CHIP_SECRET_KEY;
     const chipBrandId = process.env.CHIP_BRAND_ID;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -54,7 +74,7 @@ export async function POST(request: Request) {
         purchase: {
           products: [{
             name: `Maintenance Fee ${bill.monthYear}`,
-            price: Math.round(Number(bill.totalAmount) * 100),
+            price: Math.round(newTotalAmount * 100),
             quantity: 1,
           }],
         },

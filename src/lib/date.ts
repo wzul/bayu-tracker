@@ -23,3 +23,14 @@ export function fmtMYTFull(date: Date | string | null | undefined): string {
 export function fmtMYTShort(date: Date | string | null | undefined): string {
   return fmtMYT(date, { day: "2-digit", month: "2-digit", year: "numeric" });
 }
+
+// Format "2026-03" → "Mac 2026" (MS) or "March 2026" (EN)
+export function fmtMonthYear(monthYear: string, lang: "ms" | "en" = "ms"): string {
+  const [year, month] = monthYear.split("-");
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  return d.toLocaleDateString(lang === "ms" ? "ms-MY" : "en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "long",
+  });
+}

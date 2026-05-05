@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fmtMYT } from "@/lib/date";
+import { fmtMYT, fmtMonthYear } from "@/lib/date";
+import { useLanguage } from "@/components/LanguageProvider";
 
 interface Bill {
   id: string;
@@ -32,6 +33,7 @@ interface Unit {
 export default function UnitDetailPage({ params }: { params: { id: string } }) {
   const [unit, setUnit] = useState<Unit | null>(null);
   const [loading, setLoading] = useState(true);
+  const { lang } = useLanguage();
 
   useEffect(() => {
     fetch(`/api/admin/units/${params.id}`)
@@ -95,7 +97,7 @@ export default function UnitDetailPage({ params }: { params: { id: string } }) {
             <tbody className="divide-y">
               {unit.bills.map((b) => (
                 <tr key={b.id} className="hover:bg-gray-50">
-                  <td className="py-3 text-sm font-medium">{b.monthYear}</td>
+                  <td className="py-3 text-sm font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                   <td className="py-3 text-sm text-right text-gray-700">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="py-3 text-sm text-gray-500 px-4">{fmtMYT(b.dueDate)}</td>
                   <td className="py-3">

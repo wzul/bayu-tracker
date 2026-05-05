@@ -32,7 +32,54 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Some bills are invalid or already paid" }, { status: 400 });
     }
 
-    const totalAmount = bills.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+    const config = await db.config.findFirst();
+    const fixedFeeInRM = Number(config?.gatewayFeeFixed ?? 0) / 100;
+    const gatewayFeePercent = Number(config?.gatewayFeePercent ?? 0);
+
+    // Normalize each bill to have percentFee only, then recalculate totalAmount
+    for (const b of bills) {
+      const percentFee = Number(b.baseAmount) * (gatewayFeePercent / 100);
+      const total =
+        Number(b.baseAmount) +
+        percentFee -
+        Number(b.discount) +
+        Number(b.adjustment) +
+        Number(b.penaltyAmount);
+      await db.bill.update({
+        where: { id: b.id },
+        data: {
+          additionalFee: percentFee,
+          totalAmount: total,
+        },
+      });
+    }
+
+    // Add fixedFee to the first bill (one fixed fee per transaction)
+    const firstBill = bills[0];
+    const firstPercent = Number(firstBill.baseAmount) * (gatewayFeePercent / 100);
+    const firstNewAdditionalFee = firstPercent + fixedFeeInRM;
+    const firstNewTotal =
+      Number(firstBill.baseAmount) +
+      firstNewAdditionalFee -
+      Number(firstBill.discount) +
+      Number(firstBill.adjustment) +
+      Number(firstBill.penaltyAmount);
+
+    await db.bill.update({
+      where: { id: firstBill.id },
+      data: {
+        additionalFee: firstNewAdditionalFee,
+        totalAmount: firstNewTotal,
+      },
+    });
+
+    // Refetch updated bills for correct total
+    const updatedBills = await db.bill.findMany({
+      where: { id: { in: billIds } },
+      orderBy: { dueDate: "asc" },
+    });
+
+    const totalAmount = updatedBills.reduce((sum, b) => sum + Number(b.totalAmount), 0);
 
     const chipSecret = process.env.CHIP_SECRET_KEY;
     const chipBrandId = process.env.CHIP_BRAND_ID;
@@ -57,7 +104,7 @@ export async function POST(request: Request) {
           full_name: bills[0].unit.ownerName,
         },
         purchase: {
-          products: bills.map((b) => ({
+          products: updatedBills.map((b) => ({
             name: `Maintenance ${b.monthYear}`,
             price: Math.round(Number(b.totalAmount) * 100),
             quantity: 1,

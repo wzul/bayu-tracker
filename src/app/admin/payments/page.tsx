@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/components/LanguageProvider";
 import { t } from "@/lib/i18n";
-import { fmtMYT, fmtMYTFull } from "@/lib/date";
+import { fmtMYT, fmtMYTFull, fmtMonthYear } from "@/lib/date";
 
 interface Payment {
   id: string;
@@ -124,7 +124,7 @@ export default function PaymentsPage() {
                     <div className="text-sm font-medium">{p.unit.block}-{p.unit.floor}-{p.unit.unitNo}</div>
                     <div className="text-xs text-gray-500">{p.unit.ownerName}</div>
                   </td>
-                  <td className="px-4 py-3 text-sm">{p.monthYear}</td>
+                  <td className="px-4 py-3 text-sm">{fmtMonthYear(p.monthYear, lang)}</td>
                   <td className="px-4 py-3 text-sm text-right font-medium">RM {Number(p.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3 text-sm">{methodLabel(p.paymentMethod)}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">{p.paidAt ? fmtMYTFull(p.paidAt) : "-"}</td>

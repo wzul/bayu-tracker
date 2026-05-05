@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { fmtMYT } from "@/lib/date";
+import { fmtMYT, fmtMonthYear } from "@/lib/date";
 import { useLanguage } from "@/components/LanguageProvider";
 import { t } from "@/lib/i18n";
 
@@ -28,6 +28,7 @@ export default function ResidentDashboard() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPayLoading, setBulkPayLoading] = useState(false);
+  const [gatewayFeeFixed, setGatewayFeeFixed] = useState(0);
   const { lang } = useLanguage();
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function ResidentDashboard() {
       .then(r => r.json())
       .then(data => {
         setBills(data.bills || []);
+        setGatewayFeeFixed(Number(data.gatewayFeeFixed ?? 0));
         setLoading(false);
       });
   }, []);
@@ -48,6 +50,9 @@ export default function ResidentDashboard() {
   const paidBills = bills.filter(b => b.status === "PAID");
   const selectedBills = pendingBills.filter(b => selected.has(b.id));
   const selectedTotal = selectedBills.reduce((s, b) => s + Number(b.totalAmount), 0);
+  const selectedTotalWithFee = selected.size > 0
+    ? selectedTotal + (gatewayFeeFixed / 100)
+    : selectedTotal;
 
   const toggleSelect = (id: string) => {
     const next = new Set(selected);
@@ -129,12 +134,20 @@ export default function ResidentDashboard() {
               >
                 {bulkPayLoading
                   ? t("loading", lang)
-                  : t("paySelected", lang, { count: String(selected.size), amount: selectedTotal.toFixed(2) })}
+                  : t("paySelected", lang, { count: String(selected.size), amount: selectedTotalWithFee.toFixed(2) })}
               </button>
             )}
           </div>
         )}
       </div>
+
+      {selected.size > 0 && gatewayFeeFixed > 0 && (
+        <div className="mb-3 text-sm text-gray-500 text-right">
+          {lang === "ms"
+            ? `Termasuk yuran gateway RM ${(gatewayFeeFixed / 100).toFixed(2)}`
+            : `Includes gateway fee RM ${(gatewayFeeFixed / 100).toFixed(2)}`}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <table className="w-full">
@@ -162,7 +175,7 @@ export default function ResidentDashboard() {
                     />
                   )}
                 </td>
-                <td className="px-4 py-3 font-medium">{b.monthYear}</td>
+                <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                 <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.dueDate)}</td>
                 <td className="px-4 py-3">

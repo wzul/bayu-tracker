@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { fmtMYT } from "@/lib/date";
+import { fmtMYT, fmtMonthYear } from "@/lib/date";
 import { useLanguage } from "@/components/LanguageProvider";
 import { t } from "@/lib/i18n";
 
@@ -72,7 +72,7 @@ export default function PaymentHistoryPage() {
             <tbody className="divide-y">
               {paidBills.map((b) => (
                 <tr key={b.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{b.monthYear}</td>
+                  <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                   <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{t("statusPaid", lang)}</span>

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { fmtMYT } from "@/lib/date";
+import { fmtMYT, fmtMonthYear } from "@/lib/date";
+import { useLanguage } from "@/components/LanguageProvider";
 
 interface Bill {
   id: string;
@@ -22,6 +23,7 @@ export default function BillsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [status, setStatus] = useState("");
   const [monthYear, setMonthYear] = useState("");
+  const { lang } = useLanguage();
 
   const fetchBills = useCallback(async () => {
     setLoading(true);
@@ -104,7 +106,7 @@ export default function BillsPage() {
               : bills.length === 0 ? (<tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Tiada bil</td></tr>)
               : bills.map((b) => (<tr key={b.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3"><div className="text-sm font-medium">{b.unit.block}-{b.unit.floor}-{b.unit.unitNo}</div><div className="text-xs text-gray-500">{b.unit.ownerName}</div></td>
-                <td className="px-4 py-3 text-sm">{b.monthYear}</td>
+                <td className="px-4 py-3 text-sm">{fmtMonthYear(b.monthYear, lang)}</td>
                 <td className="px-4 py-3 text-sm text-right font-medium">RM {Number(b.totalAmount).toFixed(2)}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.dueDate)}</td>
                 <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{b.status}</span></td>

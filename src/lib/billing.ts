@@ -24,8 +24,7 @@ export async function generateMonthlyBills(monthYear: string, dueDate: Date) {
 
     const baseAmount = Number(unit.monthlyFee);
     const percentFee = baseAmount * (Number(config.gatewayFeePercent) / 100);
-    const fixedFee = Number(config.gatewayFeeFixed) / 100; // convert cents to RM
-    const additionalFee = percentFee + fixedFee;
+    const additionalFee = percentFee;
     const totalAmount = baseAmount + additionalFee;
 
     await db.bill.create({
