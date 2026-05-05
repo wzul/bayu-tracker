@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     const chipStatus = chipPurchase.status;
     const isPaid = chipStatus === "paid" || chipStatus === "closed" || chipStatus === "successful" || chipStatus === "completed";
 
-    if (isPaid && bill.status !== "PAID") {
+    if (isPaid) {
       await db.bill.update({
         where: { id: bill.id },
         data: {
