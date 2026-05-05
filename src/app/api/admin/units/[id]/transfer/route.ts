@@ -48,8 +48,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       });
     }
 
-    let proratedOldBillId: string | null = null;
-    let proratedNewBillId: string | null = null;
+    let proratedOldOwnerBillId: string | null = null;
+    let proratedNewOwnerBillId: string | null = null;
 
     if (isMidMonth) {
       const year = transferDateMYT.getFullYear();
@@ -88,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           status: "PENDING",
         },
       });
-      proratedOldBillId = oldBill.id;
+      proratedOldOwnerBillId = oldBill.id;
 
       // Create prorated bill for new owner
       const newBill = await db.bill.create({
@@ -105,7 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           status: "PENDING",
         },
       });
-      proratedNewBillId = newBill.id;
+      proratedNewOwnerBillId = newBill.id;
     }
 
     // Record transfer
@@ -159,8 +159,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         oldOwner: unit.ownerName,
         newOwner: data.newOwnerName,
         transferDate: data.transferDate,
-        proratedOldBillId,
-        proratedNewBillId,
+        proratedOldOwnerBillId,
+        proratedNewOwnerBillId,
       },
     });
 

@@ -86,6 +86,15 @@ See `.env.example` for the full list. Required for local dev:
 - `CRON_SECRET` (for cron API routes)
 - `RATE_LIMIT_*` (login and webhook rate limits)
 
+## Docker-First Development
+
+**This project must not pollute the host OS.** All runtime commands (dev server, database access, Prisma migrations, seeding) should run inside Docker containers. Do not run `npm install`, `npx prisma migrate dev`, `npm run dev`, or any Node/Prisma command directly on the host unless explicitly asked.
+
+- `docker compose up --build` is the correct way to start the full stack locally.
+- The app container handles Prisma migrations automatically on startup via `npx prisma migrate deploy` in the Dockerfile CMD.
+- Use `docker compose exec app npx prisma ...` if you need to run one-off Prisma commands against the running container.
+- Never commit `node_modules`, `.next/`, or any host-side build artifacts. These are already in `.gitignore`.
+
 ## Important Code Patterns
 
 - Use `db` from `src/lib/db.ts` (singleton PrismaClient) for all database access.
