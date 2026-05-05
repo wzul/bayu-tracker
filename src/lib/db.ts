@@ -18,8 +18,6 @@ function createNoOpPrisma(): PrismaClient {
 
 const globalForPrisma = global as unknown as { db?: PrismaClient };
 
-export const db = globalForPrisma.db ?? (isBuildPhase ? createNoOpPrisma() : new PrismaClient({
-  datasourceUrl: process.env.DATABASE_URL,
-}));
+export const db = globalForPrisma.db ?? (isBuildPhase ? createNoOpPrisma() : new PrismaClient());
 
 if (!isBuildPhase && process.env.NODE_ENV !== "production") globalForPrisma.db = db;
