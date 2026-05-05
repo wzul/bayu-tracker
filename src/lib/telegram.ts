@@ -70,12 +70,18 @@ export async function tgAnswerCallback(callbackQueryId: string, text?: string) {
 }
 
 // ── Admin check ──────────────────────────────────────────────────────
-function isAdmin(id: number): boolean {
+function isAdmin(id: number, chatId?: number): boolean {
   const ids = (process.env.TELEGRAM_ADMIN_IDS || "")
     .split(",")
     .map((s) => parseInt(s.trim()))
     .filter(Boolean);
-  return ids.includes(id);
+  if (ids.includes(id)) return true;
+  // Also check session role for logged-in admins
+  if (chatId) {
+    const session = userSessions.get(chatId);
+    if (session?.role === "ADMIN") return true;
+  }
+  return false;
 }
 
 // ── Auth helpers ─────────────────────────────────────────────────────
@@ -173,7 +179,7 @@ async function handleCallbackQuery(cb: any) {
   const publicCallbacks = ["menu", "help", "login", "logout"];
   if (!publicCallbacks.includes(data) && !data.startsWith("noop")) {
     const session = requireAuth(chatId);
-    if (!session && !isAdmin(userId)) {
+    if (!session && !isAdmin(userId, chatId)) {
       await tgEditMessage(chatId, messageId, "🔒 Sila log masuk terlebih dahulu.", {
         reply_markup: {
           inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
@@ -185,11 +191,11 @@ async function handleCallbackQuery(cb: any) {
 
   // Route callbacks
   if (data === "menu") {
-    await showMainMenu(chatId, isAdmin(userId));
+    await showMainMenu(chatId, isAdmin(userId, chatId));
     return;
   }
   if (data === "help") {
-    await cmdHelp(chatId, isAdmin(userId));
+    await cmdHelp(chatId, isAdmin(userId, chatId));
     return;
   }
   if (data === "login") {
@@ -220,7 +226,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "summary") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -228,7 +234,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "unit_search") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -236,7 +242,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "bills_menu") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -244,7 +250,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "config") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -252,7 +258,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "reports_menu") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -260,7 +266,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "admin_menu") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -268,7 +274,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "overdue") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -276,7 +282,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "listadmins") {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -296,7 +302,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data.startsWith("bills_page_")) {
-    if (!isAdmin(userId)) {
+    if (!isAdmin(userId, chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.");
       return;
     }
@@ -328,10 +334,10 @@ async function handleMessage(msg: any) {
   switch (cmd) {
     case "/start":
     case "/menu":
-      await showMainMenu(chatId, isAdmin(userId));
+      await showMainMenu(chatId, isAdmin(userId, chatId));
       return;
     case "/help":
-      await cmdHelp(chatId, isAdmin(userId));
+      await cmdHelp(chatId, isAdmin(userId, chatId));
       return;
     case "/login":
       await startOtpFlow(chatId);
@@ -352,14 +358,14 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/summary":
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
       await cmdSummary(chatId);
       return;
     case "/bills": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -370,7 +376,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/unit": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -382,7 +388,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/overdue": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -390,7 +396,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/config": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -398,7 +404,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/listadmins": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -406,7 +412,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/addadmin": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -418,7 +424,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/removeadmin": {
-      if (!isAdmin(userId)) {
+      if (!isAdmin(userId, chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -432,7 +438,7 @@ async function handleMessage(msg: any) {
   }
 
   // Admin config set commands
-  if (cmd.startsWith("/set") && isAdmin(userId)) {
+  if (cmd.startsWith("/set") && isAdmin(userId, chatId)) {
     const fieldMap: Record<string, string> = {
       "/setpenaltydays": "penaltyDays",
       "/setpenaltypercent": "penaltyPercent",
@@ -448,15 +454,15 @@ async function handleMessage(msg: any) {
   }
 
   // Default: if text looks like an email (for admin searching or fallback)
-  if (isAdmin(userId) && text.includes("@")) {
+  if (isAdmin(userId, chatId) && text.includes("@")) {
     await cmdUnit(text, chatId);
     return;
   }
 
   // Show menu for authenticated users, auth prompt for guests
   const session = requireAuth(chatId);
-  if (session || isAdmin(userId)) {
-    await showMainMenu(chatId, isAdmin(userId));
+  if (session || isAdmin(userId, chatId)) {
+    await showMainMenu(chatId, isAdmin(userId, chatId));
   } else {
     await tgSend(chatId, "👋 Selamat datang ke <b>Bot Bayu Condo</b>.\n\nSila log masuk untuk mula.", {
       reply_markup: {
