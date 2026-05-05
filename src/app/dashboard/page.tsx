@@ -8,6 +8,8 @@ import { t } from "@/lib/i18n";
 interface Bill {
   id: string;
   monthYear: string;
+  baseAmount: number;
+  additionalFee: number;
   totalAmount: number;
   dueDate: string;
   status: string;
@@ -29,6 +31,7 @@ export default function ResidentDashboard() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPayLoading, setBulkPayLoading] = useState(false);
   const [gatewayFeeFixed, setGatewayFeeFixed] = useState(0);
+  const [gatewayFeePercent, setGatewayFeePercent] = useState(0);
   const { lang } = useLanguage();
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export default function ResidentDashboard() {
       .then(data => {
         setBills(data.bills || []);
         setGatewayFeeFixed(Number(data.gatewayFeeFixed ?? 0));
+        setGatewayFeePercent(Number(data.gatewayFeePercent ?? 0));
         setLoading(false);
       });
   }, []);
@@ -49,10 +53,10 @@ export default function ResidentDashboard() {
   const pendingBills = bills.filter(b => b.status === "PENDING" || b.status === "OVERDUE");
   const paidBills = bills.filter(b => b.status === "PAID");
   const selectedBills = pendingBills.filter(b => selected.has(b.id));
-  const selectedTotal = selectedBills.reduce((s, b) => s + Number(b.totalAmount), 0);
-  const selectedTotalWithFee = selected.size > 0
-    ? selectedTotal + (gatewayFeeFixed / 100)
-    : selectedTotal;
+  const selectedBaseTotal = selectedBills.reduce((s, b) => s + Number(b.totalAmount) - Number(b.additionalFee), 0);
+  const selectedPercentFee = selectedBaseTotal * (gatewayFeePercent / 100);
+  const selectedFixedFee = selected.size > 0 ? gatewayFeeFixed / 100 : 0;
+  const selectedTotalWithFee = selectedBaseTotal + selectedPercentFee + selectedFixedFee;
 
   const toggleSelect = (id: string) => {
     const next = new Set(selected);
@@ -141,11 +145,11 @@ export default function ResidentDashboard() {
         )}
       </div>
 
-      {selected.size > 0 && gatewayFeeFixed > 0 && (
-        <div className="mb-3 text-sm text-gray-500 text-right">
-          {lang === "ms"
-            ? `Termasuk yuran gateway RM ${(gatewayFeeFixed / 100).toFixed(2)}`
-            : `Includes gateway fee RM ${(gatewayFeeFixed / 100).toFixed(2)}`}
+      {selected.size > 0 && (gatewayFeeFixed > 0 || gatewayFeePercent > 0) && (
+        <div className="mb-3 text-sm text-gray-500 text-right space-y-1">
+          <div>{lang === "ms" ? "Jumlah bil:" : "Bills total:"} RM {selectedBaseTotal.toFixed(2)}</div>
+          {selectedPercentFee > 0 && <div>{lang === "ms" ? "Yuran gateway (%)" : "Gateway fee (%)"}: RM {selectedPercentFee.toFixed(2)}</div>}
+          {selectedFixedFee > 0 && <div>{lang === "ms" ? "Yuran gateway (tetap)" : "Gateway fee (fixed)"}: RM {selectedFixedFee.toFixed(2)}</div>}
         </div>
       )}
 

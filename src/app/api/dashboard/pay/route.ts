@@ -42,6 +42,10 @@ export async function POST(request: Request) {
       Number(bill.adjustment) +
       Number(bill.penaltyAmount);
 
+    console.log("[pay] Config:", { gatewayFeeFixed: config?.gatewayFeeFixed, gatewayFeePercent: config?.gatewayFeePercent, fixedFeeInRM, percentFee });
+    console.log("[pay] Bill original:", { id: bill.id, baseAmount: Number(bill.baseAmount), additionalFee: Number(bill.additionalFee), totalAmount: Number(bill.totalAmount) });
+    console.log("[pay] Bill updated:", { newAdditionalFee, newTotalAmount, chipPrice: Math.round(newTotalAmount * 100) });
+
     await db.bill.update({
       where: { id: bill.id },
       data: {

@@ -36,7 +36,14 @@ export async function POST(request: Request) {
     const fixedFeeInRM = Number(config?.gatewayFeeFixed ?? 0) / 100;
     const gatewayFeePercent = Number(config?.gatewayFeePercent ?? 0);
 
-    // Normalize each bill to have percentFee only, then recalculate totalAmount
+    console.log("[pay-bulk] Config:", { gatewayFeeFixed: config?.gatewayFeeFixed, gatewayFeePercent: config?.gatewayFeePercent, fixedFeeInRM, billCount: bills.length });
+
+    // Log original bill amounts
+    const originalTotal = bills.reduce((sum: number, b: typeof bills[0]) => sum + Number(b.totalAmount), 0);
+    console.log("[pay-bulk] Original totals:", bills.map((b: typeof bills[0]) => ({ id: b.id, baseAmount: Number(b.baseAmount), additionalFee: Number(b.additionalFee), totalAmount: Number(b.totalAmount) })));
+    console.log("[pay-bulk] Original total:", originalTotal);
+
+    // Compute new amounts: percentFee only (remove any baked-in fixedFee), then add fixedFee to first bill
     for (const b of bills) {
       const percentFee = Number(b.baseAmount) * (gatewayFeePercent / 100);
       const total =
@@ -79,7 +86,16 @@ export async function POST(request: Request) {
       orderBy: { dueDate: "asc" },
     });
 
-    const totalAmount = updatedBills.reduce((sum, b) => sum + Number(b.totalAmount), 0);
+    const totalAmount = updatedBills.reduce((sum: number, b: typeof updatedBills[0]) => sum + Number(b.totalAmount), 0);
+    const chipTotal = updatedBills.reduce((sum: number, b: typeof updatedBills[0]) => sum + Math.round(Number(b.totalAmount) * 100), 0) / 100;
+
+    console.log("[pay-bulk] Updated totals:", updatedBills.map((b: typeof updatedBills[0]) => ({ id: b.id, totalAmount: Number(b.totalAmount) })));
+    console.log("[pay-bulk] Computed totalAmount:", totalAmount);
+    console.log("[pay-bulk] CHIP total (cents/100):", chipTotal);
+
+    if (Math.abs(totalAmount - chipTotal) > 0.01) {
+      console.error("[pay-bulk] MISMATCH: totalAmount != chipTotal", { totalAmount, chipTotal });
+    }
 
     const chipSecret = process.env.CHIP_SECRET_KEY;
     const chipBrandId = process.env.CHIP_BRAND_ID;
@@ -104,7 +120,7 @@ export async function POST(request: Request) {
           full_name: bills[0].unit.ownerName,
         },
         purchase: {
-          products: updatedBills.map((b) => ({
+          products: updatedBills.map((b: typeof updatedBills[0]) => ({
             name: `Maintenance ${b.monthYear}`,
             price: Math.round(Number(b.totalAmount) * 100),
             quantity: 1,
@@ -116,7 +132,7 @@ export async function POST(request: Request) {
         success_callback: `${appUrl}/api/webhooks/chip`,
         send_receipt: false,
         due_strict: true,
-        reference: bills.map((b) => b.id).join(","), // comma-separated bill IDs
+        reference: bills.map((b: typeof bills[0]) => b.id).join(","), // comma-separated bill IDs
       }),
     });
 
@@ -127,6 +143,7 @@ export async function POST(request: Request) {
     }
 
     const chipPurchaseId = String(chipData.id);
+    console.log("[pay-bulk] CHIP purchase created:", { chipPurchaseId, checkoutUrl: chipData.checkout_url, chipTotal });
 
     // Store chipPurchaseId in metadata field for webhook lookup
     // We use chipBillId for the first bill, and save full list in a JSONB field
