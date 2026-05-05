@@ -66,7 +66,7 @@ export default function AdminDashboard() {
                 )}
               </div>
               <div className={`w-12 h-12 rounded-lg ${stat.color} bg-opacity-20 flex items-center justify-center`>
-                <div className={`w-4 h-4 rounded-full ${stat.color}`} />
+                <div className={`w-4 h-4 rounded-full ${stat.color}`}></div>
               </div>
             </div>
           </Link>
