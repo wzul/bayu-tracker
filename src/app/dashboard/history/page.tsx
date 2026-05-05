@@ -33,10 +33,10 @@ export default function PaymentHistoryPage() {
   const paidBills = bills.filter((b) => b.status === "PAID");
 
   const statusColor = (s: string) => {
-    if (s === "PAID") return "bg-green-100 text-green-800";
-    if (s === "PENDING") return "bg-yellow-100 text-yellow-800";
-    if (s === "OVERDUE") return "bg-red-100 text-red-800";
-    return "bg-gray-100 text-gray-800";
+    if (s === "PAID") return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+    if (s === "PENDING") return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300";
+    if (s === "OVERDUE") return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+    return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
   };
 
   const methodLabel = (m: string | null) => {
@@ -49,46 +49,46 @@ export default function PaymentHistoryPage() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">{t("history", lang)}</h1>
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">{t("history", lang)}</h1>
 
       {loading ? (
-        <div className="text-center text-gray-500">{t("loading", lang)}</div>
+        <div className="text-center text-gray-500 dark:text-gray-400">{t("loading", lang)}</div>
       ) : paidBills.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
           {lang === "ms" ? "Tiada rekod pembayaran lagi." : "No payment records yet."}
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-700">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("status", lang)}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "Dibayar Pada" : "Paid On"}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "Kaedah" : "Method"}</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{lang === "ms" ? "Resit" : "Receipt"}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{t("month", lang)}</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600 dark:text-gray-300">{t("amount", lang)}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{t("status", lang)}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{lang === "ms" ? "Dibayar Pada" : "Paid On"}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{lang === "ms" ? "Kaedah" : "Method"}</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600 dark:text-gray-300">{lang === "ms" ? "Resit" : "Receipt"}</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y dark:divide-gray-700">
               {paidBills.map((b) => (
-                <tr key={b.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
-                  <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
-                  <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
+                <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+                  <td className="px-4 py-3 text-sm font-mono text-gray-500 dark:text-gray-400">{b.uuid.slice(0, 7)}</td>
+                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-100">{fmtMonthYear(b.monthYear, lang)}</td>
+                  <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-200">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{t("statusPaid", lang)}</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.paidAt)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{methodLabel(b.paymentMethod)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{fmtMYT(b.paidAt)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{methodLabel(b.paymentMethod)}</td>
                   <td className="px-4 py-3 text-right">
                     {b.receiptUrl ? (
-                      <a href={b.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm">
+                      <a href={b.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
                         {lang === "ms" ? "Muat Turun" : "Download"}
                       </a>
                     ) : (
-                      <span className="text-sm text-gray-400">-</span>
+                      <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
                     )}
                   </td>
                 </tr>

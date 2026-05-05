@@ -99,53 +99,53 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <div className="p-8 text-center">{t("loading", lang)}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-300">{t("loading", lang)}</div>;
   if (!profile) return <div className="p-8 text-center text-red-600">{lang === "ms" ? "Tiada profil dijumpai" : "No profile found"}</div>;
 
   return (
     <div className="p-8 max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">{t("profile", lang)}</h1>
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">{t("profile", lang)}</h1>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold mb-4">{lang === "ms" ? "Maklumat Unit" : "Unit Information"}</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">{lang === "ms" ? "Maklumat Unit" : "Unit Information"}</h2>
         {profile.unit ? (
           <div className="grid grid-cols-2 gap-4">
-            <div><p className="text-sm text-gray-500">{t("unit", lang)}</p><p className="font-medium">{profile.unit.block}-{profile.unit.floor}-{profile.unit.unitNo}</p></div>
-            <div><p className="text-sm text-gray-500">{t("ownerName", lang)}</p><p className="font-medium">{profile.unit.ownerName}</p></div>
-            <div><p className="text-sm text-gray-500">{lang === "ms" ? "No KP" : "IC No."}</p><p className="font-medium">{profile.unit.ownerIc}</p></div>
-            <div><p className="text-sm text-gray-500">{t("monthlyFee", lang)}</p><p className="font-medium">RM {Number(profile.unit.monthlyFee).toFixed(2)}</p></div>
+            <div><p className="text-sm text-gray-500 dark:text-gray-400">{t("unit", lang)}</p><p className="font-medium text-gray-800 dark:text-gray-100">{profile.unit.block}-{profile.unit.floor}-{profile.unit.unitNo}</p></div>
+            <div><p className="text-sm text-gray-500 dark:text-gray-400">{t("ownerName", lang)}</p><p className="font-medium text-gray-800 dark:text-gray-100">{profile.unit.ownerName}</p></div>
+            <div><p className="text-sm text-gray-500 dark:text-gray-400">{lang === "ms" ? "No KP" : "IC No."}</p><p className="font-medium text-gray-800 dark:text-gray-100">{profile.unit.ownerIc}</p></div>
+            <div><p className="text-sm text-gray-500 dark:text-gray-400">{t("monthlyFee", lang)}</p><p className="font-medium text-gray-800 dark:text-gray-100">RM {Number(profile.unit.monthlyFee).toFixed(2)}</p></div>
           </div>
         ) : (
-          <p className="text-gray-500">{lang === "ms" ? "Tiada unit dihubungkan." : "No unit linked."}</p>
+          <p className="text-gray-500 dark:text-gray-400">{lang === "ms" ? "Tiada unit dihubungkan." : "No unit linked."}</p>
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-        <h2 className="text-lg font-semibold mb-4">{lang === "ms" ? "Kemaskini Profil" : "Update Profile"}</h2>
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+        <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">{lang === "ms" ? "Kemaskini Profil" : "Update Profile"}</h2>
 
         {message && (
-          <div className="p-3 rounded bg-green-100 text-green-700">{message}</div>
+          <div className="p-3 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">{message}</div>
         )}
         {error && (
-          <div className="p-3 rounded bg-red-100 text-red-700">{error}</div>
+          <div className="p-3 rounded bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300">{error}</div>
         )}
 
         <div>
-          <label className="block text-sm font-medium mb-1">{t("email", lang)}</label>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("email", lang)}</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
+            className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">{t("phone", lang)}</label>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("phone", lang)}</label>
           <input
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
+            className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
             placeholder={lang === "ms" ? "Nombor telefon" : "Phone number"}
           />
         </div>
@@ -160,45 +160,45 @@ export default function ProfilePage() {
         </div>
       </form>
 
-      <form onSubmit={handleChangePassword} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-        <h2 className="text-lg font-semibold mb-4">{lang === "ms" ? "Tukar Kata Laluan" : "Change Password"}</h2>
+      <form onSubmit={handleChangePassword} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+        <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">{lang === "ms" ? "Tukar Kata Laluan" : "Change Password"}</h2>
 
         {pwMessage && (
-          <div className="p-3 rounded bg-green-100 text-green-700">{pwMessage}</div>
+          <div className="p-3 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">{pwMessage}</div>
         )}
         {pwError && (
-          <div className="p-3 rounded bg-red-100 text-red-700">{pwError}</div>
+          <div className="p-3 rounded bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300">{pwError}</div>
         )}
 
         <div>
-          <label className="block text-sm font-medium mb-1">{lang === "ms" ? "Kata Laluan Semasa" : "Current Password"}</label>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{lang === "ms" ? "Kata Laluan Semasa" : "Current Password"}</label>
           <input
             type="password"
             required
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
+            className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">{lang === "ms" ? "Kata Laluan Baharu" : "New Password"}</label>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{lang === "ms" ? "Kata Laluan Baharu" : "New Password"}</label>
           <input
             type="password"
             required
             minLength={6}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
+            className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">{lang === "ms" ? "Sahkan Kata Laluan Baharu" : "Confirm New Password"}</label>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{lang === "ms" ? "Sahkan Kata Laluan Baharu" : "Confirm New Password"}</label>
           <input
             type="password"
             required
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
+            className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
           />
         </div>
         <div className="flex justify-end">

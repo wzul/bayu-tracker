@@ -67,35 +67,35 @@ function PaymentSuccessContent() {
 
   return (
     <div className="p-8 max-w-2xl mx-auto text-center">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
         <div className="text-6xl mb-4">✅</div>
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t("paymentSuccess", lang)}</h1>
-        <p className="text-gray-500 mb-6">{t("thankYou", lang)}</p>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t("paymentSuccess", lang)}</h1>
+        <p className="text-gray-500 dark:text-gray-400 mb-6">{t("thankYou", lang)}</p>
 
         {verifying && (
-          <div className="bg-blue-50 rounded-lg p-4 mb-6">
-            <p className="text-blue-700">{t("verifyingPayment", lang)}</p>
+          <div className="bg-blue-50 dark:bg-blue-900 rounded-lg p-4 mb-6">
+            <p className="text-blue-700 dark:text-blue-300">{t("verifyingPayment", lang)}</p>
           </div>
         )}
 
         {verifyResult && !verifying && (
-          <div className={`rounded-lg p-4 mb-6 ${verifyResult.includes(t("paymentVerified", lang).slice(0, 5)) ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
+          <div className={`rounded-lg p-4 mb-6 ${verifyResult.includes(t("paymentVerified", lang).slice(0, 5)) ? "bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300" : "bg-yellow-50 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300"}`}>
             <p>{verifyResult}</p>
           </div>
         )}
 
         {bill && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
-            <p className="text-sm text-gray-500">{lang === "ms" ? "No. Rujukan" : "Ref No."}</p>
-            <p className="font-medium text-lg font-mono">{bill.uuid?.slice(0, 7)}</p>
-            <p className="text-sm text-gray-500 mt-2">{t("month", lang)}</p>
-            <p className="font-medium text-lg">{bill.monthYear}</p>
-            <p className="text-sm text-gray-500 mt-2">{t("amount", lang)}</p>
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-6 text-left">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{lang === "ms" ? "No. Rujukan" : "Ref No."}</p>
+            <p className="font-medium text-lg font-mono text-gray-800 dark:text-gray-100">{bill.uuid?.slice(0, 7)}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t("month", lang)}</p>
+            <p className="font-medium text-lg text-gray-800 dark:text-gray-100">{bill.monthYear}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t("amount", lang)}</p>
             <p className="font-medium text-lg text-green-600">
               RM {Number(bill.totalAmount).toFixed(2)}
             </p>
-            <p className="text-sm text-gray-500 mt-2">{t("status", lang)}</p>
-            <p className={`font-medium ${bill.status === "PAID" ? "text-green-600" : "text-yellow-600"}`}>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t("status", lang)}</p>
+            <p className={`font-medium ${bill.status === "PAID" ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"}`}>
               {bill.status === "PAID" ? t("alreadyPaid", lang) : bill.status}
             </p>
           </div>
@@ -110,7 +110,7 @@ function PaymentSuccessContent() {
           </Link>
           <Link
             href="/dashboard/history"
-            className="px-6 py-2 border rounded-lg hover:bg-gray-50"
+            className="px-6 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
           >
             {t("viewHistory", lang)}
           </Link>
@@ -122,7 +122,7 @@ function PaymentSuccessContent() {
 
 export default function PaymentSuccessPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center">Memuat...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-gray-600 dark:text-gray-300">Memuat...</div>}>
       <PaymentSuccessContent />
     </Suspense>
   );

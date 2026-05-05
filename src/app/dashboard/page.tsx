@@ -106,39 +106,39 @@ export default function ResidentDashboard() {
     }
   };
 
-  if (loading) return <div className="p-8 text-center">{t("loading", lang)}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-300">{t("loading", lang)}</div>;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">{t("dashboard", lang)}</h1>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t("dashboard", lang)}</h1>
         {unit && (
-          <p className="text-gray-500 mt-1">{t("unit", lang)} {unit.block}-{unit.floor}-{unit.unitNo} | {unit.ownerName}</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{t("unit", lang)} {unit.block}-{unit.floor}-{unit.unitNo} | {unit.ownerName}</p>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <p className="text-sm text-gray-500">{t("pendingBills", lang)}</p>
-          <p className="text-3xl font-bold text-gray-800">{pendingBills.length}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("pendingBills", lang)}</p>
+          <p className="text-3xl font-bold text-gray-800 dark:text-gray-100">{pendingBills.length}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <p className="text-sm text-gray-500">{t("totalDue", lang)}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("totalDue", lang)}</p>
           <p className="text-3xl font-bold text-red-600">
             RM {pendingBills.reduce((s,b)=>s+Number(b.totalAmount),0).toFixed(2)}
           </p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <p className="text-sm text-gray-500">{t("paidBills", lang)}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("paidBills", lang)}</p>
           <p className="text-3xl font-bold text-green-600">{paidBills.length}</p>
         </div>
       </div>
 
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">{t("bills", lang)}</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t("bills", lang)}</h2>
         {pendingBills.length > 0 && (
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={selected.size === pendingBills.length && pendingBills.length > 0}
@@ -162,16 +162,16 @@ export default function ResidentDashboard() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex gap-3 flex-wrap">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4 flex gap-3 flex-wrap">
         <input
           type="text"
           value={filterUuid}
           onChange={(e) => setFilterUuid(e.target.value)}
           placeholder={lang === "ms" ? "No. Rujukan (7 aksara)" : "Ref No. (7 chars)"}
-          className="px-3 py-2 border rounded-lg text-sm w-40"
+          className="px-3 py-2 border rounded-lg text-sm w-40 bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
           maxLength={7}
         />
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm">
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100">
           <option value="">{lang === "ms" ? "Semua Status" : "All Status"}</option>
           <option value="PENDING">{t("statusPending", lang)}</option>
           <option value="PAID">{t("statusPaid", lang)}</option>
@@ -181,7 +181,7 @@ export default function ResidentDashboard() {
           type="month"
           value={filterMonth}
           onChange={(e) => setFilterMonth(e.target.value)}
-          className="px-3 py-2 border rounded-lg text-sm"
+          className="px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
         <button
           onClick={() => { setFilterStatus(""); setFilterMonth(""); setFilterUuid(""); }}
@@ -192,31 +192,31 @@ export default function ResidentDashboard() {
       </div>
 
       {selected.size > 0 && (gatewayFeeFixed > 0 || gatewayFeePercent > 0) && (
-        <div className="mb-3 text-sm text-gray-500 text-right space-y-1">
+        <div className="mb-3 text-sm text-gray-500 dark:text-gray-400 text-right space-y-1">
           <div>{lang === "ms" ? "Jumlah bil:" : "Bills total:"} RM {selectedBaseTotal.toFixed(2)}</div>
           {selectedPercentFee > 0 && <div>{lang === "ms" ? "Yuran gateway (%)" : "Gateway fee (%)"}: RM {selectedPercentFee.toFixed(2)}</div>}
           {selectedFixedFee > 0 && <div>{lang === "ms" ? "Yuran gateway (tetap)" : "Gateway fee (fixed)"}: RM {selectedFixedFee.toFixed(2)}</div>}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-700">
             <tr>
               <th className="px-4 py-3 w-10"></th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("dueDate", lang)} (MYT)</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("status", lang)}</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600"></th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{t("month", lang)}</th>
+              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600 dark:text-gray-300">{t("amount", lang)}</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{t("dueDate", lang)} (MYT)</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 dark:text-gray-300">{t("status", lang)}</th>
+              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600 dark:text-gray-300"></th>
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y dark:divide-gray-700">
             {bills.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{t("noBills", lang)}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">{t("noBills", lang)}</td></tr>
             ) : bills.map(b => (
-              <tr key={b.id} className="hover:bg-gray-50">
+              <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-900">
                 <td className="px-4 py-3">
                   {(b.status === "PENDING" || b.status === "OVERDUE") && (
                     <input
@@ -226,15 +226,15 @@ export default function ResidentDashboard() {
                     />
                   )}
                 </td>
-                <td className="px-4 py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
-                <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
-                <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.dueDate)}</td>
+                <td className="px-4 py-3 text-sm font-mono text-gray-500 dark:text-gray-400">{b.uuid.slice(0, 7)}</td>
+                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-100">{fmtMonthYear(b.monthYear, lang)}</td>
+                <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-200">RM {Number(b.totalAmount).toFixed(2)}</td>
+                <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{fmtMYT(b.dueDate)}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-1 text-xs rounded-full ${
-                    b.status === "PAID" ? "bg-green-100 text-green-800"
-                    : b.status === "OVERDUE" ? "bg-red-100 text-red-800"
-                    : "bg-yellow-100 text-yellow-800"
+                    b.status === "PAID" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                    : b.status === "OVERDUE" ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
+                    : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
                   }`}>
                     {b.status === "PAID" ? t("statusPaid", lang)
                     : b.status === "OVERDUE" ? t("statusOverdue", lang)
