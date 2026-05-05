@@ -1,6 +1,5 @@
-# Multi-stage Dockerfile for Next.js 14 + Prisma app
-# Stage 1: Base (dependencies)
-FROM node:20-alpine AS base
+# Stage 1: Base
+FROM node:22-alpine AS base
 RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app
 
@@ -28,7 +27,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # Stage 4: Runner
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 RUN apk add --no-cache openssl postgresql-client
 WORKDIR /app
 
