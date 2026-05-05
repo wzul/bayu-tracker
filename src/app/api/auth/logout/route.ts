@@ -7,7 +7,13 @@ export async function POST(request: NextRequest) {
     await deleteSession(token);
   }
 
-  const response = NextResponse.redirect(new URL("/login", request.url));
+  // Use Host header (respects reverse proxy) instead of request.url
+  // which shows 0.0.0.0:3000 inside Docker
+  const host = request.headers.get("host") || "localhost:3000";
+  const protocol = request.headers.get("x-forwarded-proto") || "https";
+  const redirectUrl = `${protocol}://${host}/login`;
+
+  const response = NextResponse.redirect(redirectUrl);
   response.cookies.set("session_token", "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
