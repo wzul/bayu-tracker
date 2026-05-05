@@ -20,6 +20,14 @@ interface OtpState {
 const userSessions = new Map<number, UserSession>();
 const otpStore = new Map<number, OtpState>();
 
+// Multi-step flow state (e.g. awaiting unit search input)
+interface ChatState {
+  mode: "awaiting_unit_query" | "awaiting_config_value";
+  field?: string;
+  messageId?: number;
+}
+const chatState = new Map<number, ChatState>();
+
 // OTP expires in 10 minutes
 const OTP_TTL_MS = 10 * 60 * 1000;
 
@@ -231,6 +239,7 @@ async function handleCallbackQuery(cb: any) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
+    chatState.set(chatId, { mode: "awaiting_unit_query" });
     await tgSend(chatId, "🔍 Hantar nama pemilik atau unit (cth: <b>A-1-01</b>):");
     return;
   }
@@ -291,6 +300,7 @@ async function handleCallbackQuery(cb: any) {
   }
   if (data.startsWith("config_edit_")) {
     const field = data.replace("config_edit_", "");
+    chatState.set(chatId, { mode: "awaiting_config_value", field });
     await tgSend(chatId, `✏️ Masukkan nilai baru untuk <b>${field}</b>:\n\n<i>Taip dalam mesej seterusnya.</i>`);
     return;
   }
@@ -313,6 +323,20 @@ async function handleMessage(msg: any) {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
   const userId = msg.from.id;
+
+  // Multi-step flow handling
+  const state = chatState.get(chatId);
+  if (state) {
+    chatState.delete(chatId);
+    if (state.mode === "awaiting_unit_query" && isAdmin(chatId)) {
+      await cmdUnit(text, chatId);
+      return;
+    }
+    if (state.mode === "awaiting_config_value" && isAdmin(chatId) && state.field) {
+      await cmdSetConfig(state.field, Number(text), chatId);
+      return;
+    }
+  }
 
   // OTP reply handling
   if (otpStore.has(chatId)) {
