@@ -645,10 +645,18 @@ async function showAdminManagementMenu(chatId: number) {
 
 // ── Resident commands ────────────────────────────────────────────────
 async function cmdCek(phoneOrEmail: string, chatId: number) {
-  const unit = await db.unit.findFirst({
-    where: { OR: [{ email: phoneOrEmail }, { phone: phoneOrEmail }] },
-    include: { bills: { orderBy: { dueDate: "desc" } } },
+  // Search by user email or unit phone
+  const user = await db.user.findFirst({
+    where: { email: phoneOrEmail },
+    include: { unit: { include: { bills: { orderBy: { dueDate: "desc" } } } } },
   });
+  let unit = user?.unit;
+  if (!unit) {
+    unit = await db.unit.findFirst({
+      where: { phone: phoneOrEmail },
+      include: { bills: { orderBy: { dueDate: "desc" } } },
+    });
+  }
   if (!unit) {
     await tgSend(chatId, "❌ Unit tidak dijumpai.");
     return;
