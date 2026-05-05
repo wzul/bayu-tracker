@@ -1,9 +1,38 @@
 import { db } from "./db";
+import { sendEmail } from "./email";
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN;
 
-export async function tgSend(chatId: number, text: string, opts?: { parse_mode?: string }) {
-  if (!token()) { console.warn("TELEGRAM_BOT_TOKEN not set"); return null; }
+// ── In-memory state ─────────────────────────────────────────────────
+interface UserSession {
+  userId: string;
+  email: string;
+  unitId: string | null;
+  role: string;
+  authenticatedAt: Date;
+}
+interface OtpState {
+  code: string;
+  email: string;
+  expiresAt: Date;
+}
+
+const userSessions = new Map<number, UserSession>();
+const otpStore = new Map<number, OtpState>();
+
+// OTP expires in 10 minutes
+const OTP_TTL_MS = 10 * 60 * 1000;
+
+// ── Telegram API helpers ─────────────────────────────────────────────
+export async function tgSend(
+  chatId: number,
+  text: string,
+  opts?: { parse_mode?: string; reply_markup?: any }
+) {
+  if (!token()) {
+    console.warn("TELEGRAM_BOT_TOKEN not set");
+    return null;
+  }
   return fetch(`https://api.telegram.org/bot${token()}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -11,24 +40,767 @@ export async function tgSend(chatId: number, text: string, opts?: { parse_mode?:
   });
 }
 
+export async function tgEditMessage(
+  chatId: number,
+  messageId: number,
+  text: string,
+  opts?: { parse_mode?: string; reply_markup?: any }
+) {
+  if (!token()) return null;
+  return fetch(`https://api.telegram.org/bot${token()}/editMessageText`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      ...opts,
+    }),
+  });
+}
+
+export async function tgAnswerCallback(callbackQueryId: string, text?: string) {
+  if (!token()) return null;
+  return fetch(`https://api.telegram.org/bot${token()}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+  });
+}
+
+// ── Admin check ──────────────────────────────────────────────────────
 function isAdmin(id: number): boolean {
-  const ids = (process.env.TELEGRAM_ADMIN_IDS || "").split(",").map((s) => parseInt(s.trim())).filter(Boolean);
+  const ids = (process.env.TELEGRAM_ADMIN_IDS || "")
+    .split(",")
+    .map((s) => parseInt(s.trim()))
+    .filter(Boolean);
   return ids.includes(id);
 }
 
-// PUBLIC: Cek bil
-async function cmdCek(phoneOrEmail: string, chatId: number) {
-  const unit = await db.unit.findFirst({ where: { OR: [{ email: phoneOrEmail }, { phone: phoneOrEmail }] }, include: { bills: { orderBy: { dueDate: "desc" } } } });
-  if (!unit) { await tgSend(chatId, "❌ Unit tidak dijumpai."); return; }
-  const pending = unit.bills.filter((b) => b.status === "PENDING" || b.status === "OVERDUE");
-  const totalPending = pending.reduce((s, b) => s + Number(b.totalAmount), 0);
-  let text = "<b> Unit " + unit.block + "-" + unit.floor + "-" + unit.unitNo + "</b>\n<b>" + unit.ownerName + "</b>\n\n<b>Bil Tertunggak: " + pending.length + "</b>\nJumlah: RM " + totalPending.toFixed(2) + "\n\n";
-  pending.slice(0, 5).forEach((b) => { text += "• " + b.monthYear + " — RM " + Number(b.totalAmount).toFixed(2) + " — " + b.status + "\n"; });
-  if (pending.length > 5) text += "...dan " + (pending.length - 5) + " lagi\n";
-  await tgSend(chatId, text);
+// ── Auth helpers ─────────────────────────────────────────────────────
+function requireAuth(chatId: number): UserSession | null {
+  const session = userSessions.get(chatId);
+  if (!session) return null;
+  // Auto-logout after 24 hours
+  if (Date.now() - session.authenticatedAt.getTime() > 24 * 60 * 60 * 1000) {
+    userSessions.delete(chatId);
+    return null;
+  }
+  return session;
 }
 
-// ADMIN: Summary
+function generateOtp(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// ── Inline keyboards ─────────────────────────────────────────────────
+function residentMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📋 Semak Bil", callback_data: "cek" }],
+      [{ text: "💰 Bayar Bil", callback_data: "pay_menu" }],
+      [{ text: "📜 Sejarah Bayaran", callback_data: "history" }],
+      [{ text: "❓ Bantuan", callback_data: "help" }],
+    ],
+  };
+}
+
+function adminMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📊 Ringkasan", callback_data: "summary" },
+        { text: "🏠 Cari Unit", callback_data: "unit_search" },
+      ],
+      [
+        { text: "🧾 Bil Bulanan", callback_data: "bills_menu" },
+        { text: "⚙️ Tetapan", callback_data: "config" },
+      ],
+      [
+        { text: "📈 Laporan", callback_data: "reports_menu" },
+        { text: "👥 Admin Telegram", callback_data: "admin_menu" },
+      ],
+      [
+        { text: "❓ Bantuan", callback_data: "help" },
+        { text: "🚪 Log Keluar", callback_data: "logout" },
+      ],
+    ],
+  };
+}
+
+function backButton(data: string) {
+  return { inline_keyboard: [[{ text: "← Kembali", callback_data: data }]] };
+}
+
+function paginationKeyboard(current: number, total: number, prefix: string) {
+  const buttons: any[] = [];
+  if (current > 1) buttons.push({ text: "⬅️ Sebelum", callback_data: `${prefix}_page_${current - 1}` });
+  buttons.push({ text: `${current}/${total}`, callback_data: "noop" });
+  if (current < total) buttons.push({ text: "Seterusnya ➡️", callback_data: `${prefix}_page_${current + 1}` });
+  return { inline_keyboard: [buttons, [{ text: "← Kembali", callback_data: "menu" }]] };
+}
+
+// ── Main dispatcher ──────────────────────────────────────────────────
+export async function handleTelegramUpdate(update: any) {
+  try {
+    if (update.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+      return;
+    }
+    if (update.message?.text) {
+      await handleMessage(update.message);
+      return;
+    }
+  } catch (err) {
+    console.error("Telegram handler error:", err);
+    const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
+    if (chatId) {
+      await tgSend(chatId, "❌ Ralat sistem. Sila cuba sebentar lagi.");
+    }
+  }
+}
+
+async function handleCallbackQuery(cb: any) {
+  const chatId = cb.message.chat.id;
+  const messageId = cb.message.message_id;
+  const data = cb.data;
+  const userId = cb.from.id;
+
+  await tgAnswerCallback(cb.id);
+
+  // Auth-required callbacks (except menu/help/logout)
+  const publicCallbacks = ["menu", "help", "login", "logout"];
+  if (!publicCallbacks.includes(data) && !data.startsWith("noop")) {
+    const session = requireAuth(chatId);
+    if (!session && !isAdmin(userId)) {
+      await tgEditMessage(chatId, messageId, "🔒 Sila log masuk terlebih dahulu.", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
+        },
+      });
+      return;
+    }
+  }
+
+  // Route callbacks
+  if (data === "menu") {
+    await showMainMenu(chatId, isAdmin(userId));
+    return;
+  }
+  if (data === "help") {
+    await cmdHelp(chatId, isAdmin(userId));
+    return;
+  }
+  if (data === "login") {
+    await startOtpFlow(chatId);
+    return;
+  }
+  if (data === "logout") {
+    userSessions.delete(chatId);
+    await tgEditMessage(chatId, messageId, "👋 Anda telah log keluar. Tekan /start untuk mula.");
+    return;
+  }
+  if (data === "cek") {
+    const session = requireAuth(chatId);
+    if (session) await cmdCek(session.email, chatId);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
+  if (data === "pay_menu") {
+    const session = requireAuth(chatId);
+    if (session) await showPayMenu(chatId, session);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
+  if (data === "history") {
+    const session = requireAuth(chatId);
+    if (session) await cmdHistory(chatId, session);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
+  if (data === "summary") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdSummary(chatId);
+    return;
+  }
+  if (data === "unit_search") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await tgSend(chatId, "🔍 Hantar nama pemilik atau unit (cth: <b>A-1-01</b>):");
+    return;
+  }
+  if (data === "bills_menu") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await showBillsMenu(chatId);
+    return;
+  }
+  if (data === "config") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdConfig(chatId);
+    return;
+  }
+  if (data === "reports_menu") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await showReportsMenu(chatId);
+    return;
+  }
+  if (data === "admin_menu") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await showAdminManagementMenu(chatId);
+    return;
+  }
+  if (data === "overdue") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdOverdue(chatId);
+    return;
+  }
+  if (data === "listadmins") {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdListAdmins(chatId);
+    return;
+  }
+  if (data.startsWith("pay_")) {
+    const billId = data.replace("pay_", "");
+    const session = requireAuth(chatId);
+    if (session) await cmdPayBill(chatId, billId, session);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
+  if (data.startsWith("config_edit_")) {
+    const field = data.replace("config_edit_", "");
+    await tgSend(chatId, `✏️ Masukkan nilai baru untuk <b>${field}</b>:\n\n<i>Taip dalam mesej seterusnya.</i>`);
+    return;
+  }
+  if (data.startsWith("bills_page_")) {
+    if (!isAdmin(userId)) {
+      await tgSend(chatId, "❌ Akses ditolak.");
+      return;
+    }
+    const page = parseInt(data.replace("bills_page_", ""), 10);
+    const month = new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+    await cmdBillsPaged(chatId, month, page);
+    return;
+  }
+
+  // Default
+  await tgSend(chatId, "👋 Pilihan tidak sah.", { reply_markup: backButton("menu") });
+}
+
+async function handleMessage(msg: any) {
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+  const userId = msg.from.id;
+
+  // OTP reply handling
+  if (otpStore.has(chatId)) {
+    await handleOtpReply(chatId, text);
+    return;
+  }
+
+  // Commands
+  const parts = text.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+
+  switch (cmd) {
+    case "/start":
+    case "/menu":
+      await showMainMenu(chatId, isAdmin(userId));
+      return;
+    case "/help":
+      await cmdHelp(chatId, isAdmin(userId));
+      return;
+    case "/login":
+      await startOtpFlow(chatId);
+      return;
+    case "/cek": {
+      const session = requireAuth(chatId);
+      if (!session) {
+        await tgSend(chatId, "🔒 Sila log masuk terlebih dahulu.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]] },
+        });
+        return;
+      }
+      if (!parts[1]) {
+        await cmdCek(session.email, chatId);
+        return;
+      }
+      await cmdCek(parts[1], chatId);
+      return;
+    }
+    case "/summary":
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      await cmdSummary(chatId);
+      return;
+    case "/bills": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      const month =
+        parts[1] ||
+        new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+      await cmdBillsPaged(chatId, month, 1);
+      return;
+    }
+    case "/unit": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (!parts[1]) {
+        await tgSend(chatId, "❌ Guna: /unit <A-1-01> atau /unit <nama>");
+        return;
+      }
+      await cmdUnit(parts[1], chatId);
+      return;
+    }
+    case "/overdue": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      await cmdOverdue(chatId);
+      return;
+    }
+    case "/config": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      await cmdConfig(chatId);
+      return;
+    }
+    case "/listadmins": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      await cmdListAdmins(chatId);
+      return;
+    }
+    case "/addadmin": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (parts.length < 3) {
+        await tgSend(chatId, "❌ Guna: /addadmin <telegramId> <nama>");
+        return;
+      }
+      await cmdAddAdmin(parts.slice(1), chatId);
+      return;
+    }
+    case "/removeadmin": {
+      if (!isAdmin(userId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (!parts[1]) {
+        await tgSend(chatId, "❌ Guna: /removeadmin <telegramId>");
+        return;
+      }
+      await cmdRemoveAdmin(parts[1], chatId);
+      return;
+    }
+  }
+
+  // Admin config set commands
+  if (cmd.startsWith("/set") && isAdmin(userId)) {
+    const fieldMap: Record<string, string> = {
+      "/setpenaltydays": "penaltyDays",
+      "/setpenaltypercent": "penaltyPercent",
+      "/setretrydays": "retryDays",
+      "/setretryattempts": "retryAttemptsPerDay",
+      "/setgatewayfee": "gatewayFeePercent",
+    };
+    const field = fieldMap[cmd];
+    if (field && parts[1]) {
+      await cmdSetConfig(field, Number(parts[1]), chatId);
+      return;
+    }
+  }
+
+  // Default: if text looks like an email (for admin searching or fallback)
+  if (isAdmin(userId) && text.includes("@")) {
+    await cmdUnit(text, chatId);
+    return;
+  }
+
+  // Show menu for authenticated users, auth prompt for guests
+  const session = requireAuth(chatId);
+  if (session || isAdmin(userId)) {
+    await showMainMenu(chatId, isAdmin(userId));
+  } else {
+    await tgSend(chatId, "👋 Selamat datang ke <b>Bot Bayu Condo</b>.\n\nSila log masuk untuk mula.", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
+      },
+    });
+  }
+}
+
+// ── Auth flows ───────────────────────────────────────────────────────
+async function startOtpFlow(chatId: number) {
+  otpStore.set(chatId, { code: "", email: "", expiresAt: new Date(Date.now() + OTP_TTL_MS) });
+  await tgSend(chatId, "🔐 <b>Log Masuk</b>\n\nSila masukkan alamat emel anda:");
+}
+
+async function handleOtpReply(chatId: number, text: string) {
+  const state = otpStore.get(chatId);
+  if (!state) return;
+
+  // Step 1: email input
+  if (!state.email) {
+    const email = text.trim().toLowerCase();
+    if (!email.includes("@") || !email.includes(".")) {
+      await tgSend(chatId, "❌ Emel tidak sah. Sila masukkan emel yang betul.");
+      return;
+    }
+
+    // Check if email exists in system
+    const user = await db.user.findUnique({
+      where: { email },
+      include: { unit: true },
+    });
+    if (!user) {
+      await tgSend(chatId, "❌ Emel tidak dijumpai dalam sistem. Sila cuba lagi atau hubungi pentadbiran.");
+      return;
+    }
+
+    const code = generateOtp();
+    otpStore.set(chatId, { code, email, expiresAt: new Date(Date.now() + OTP_TTL_MS) });
+
+    const sent = await sendEmail({
+      to: email,
+      subject: "Kod OTP — Bayu Condo",
+      html: `<h2>Kod Pengesahan Bayu Condo</h2>
+        <p>Kod OTP anda: <strong style="font-size:24px; letter-spacing:4px;">${code}</strong></p>
+        <p>Kod ini sah selama 10 minit.</p>
+        <p>Jika anda tidak meminta kod ini, sila abaikan emel ini.</p>
+      `,
+      text: `Kod OTP Bayu Condo anda: ${code}. Kod ini sah selama 10 minit.`,
+    });
+
+    if (!sent) {
+      await tgSend(chatId, "❌ Gagal menghantar emel. Sila cuba sebentar lagi.");
+      otpStore.delete(chatId);
+      return;
+    }
+
+    await tgSend(chatId, `📧 Kod 6-digit telah dihantar ke <b>${email}</b>.\n\nSila masukkan kod tersebut:`);
+    return;
+  }
+
+  // Step 2: OTP verification
+  const inputCode = text.trim();
+  if (Date.now() > state.expiresAt.getTime()) {
+    await tgSend(chatId, "⏰ Kod OTP telah tamat tempoh. Sila /login semula.");
+    otpStore.delete(chatId);
+    return;
+  }
+
+  if (inputCode !== state.code) {
+    await tgSend(chatId, "❌ Kod OTP salah. Sila cuba lagi:");
+    return;
+  }
+
+  // Success
+  const user = await db.user.findUnique({
+    where: { email: state.email },
+    include: { unit: true },
+  });
+  if (!user) {
+    await tgSend(chatId, "❌ Ralat pengesahan. Sila cuba lagi.");
+    otpStore.delete(chatId);
+    return;
+  }
+
+  userSessions.set(chatId, {
+    userId: user.id,
+    email: user.email,
+    unitId: user.unitId,
+    role: user.role,
+    authenticatedAt: new Date(),
+  });
+  otpStore.delete(chatId);
+
+  await tgSend(chatId, `✅ Log masuk berjaya! Selamat datang, <b>${user.unit?.ownerName || user.email}</b>.`, {
+    reply_markup: {
+      inline_keyboard: [[{ text: "📋 Menu Utama", callback_data: "menu" }]],
+    },
+  });
+}
+
+// ── Menu display ─────────────────────────────────────────────────────
+async function showMainMenu(chatId: number, admin: boolean) {
+  const text = admin
+    ? "🏢 <b>Menu Pentadbir Bayu Condo</b>\n\nPilih tindakan:"
+    : "🏠 <b>Menu Penduduk Bayu Condo</b>\n\nPilih tindakan:";
+  await tgSend(chatId, text, {
+    reply_markup: admin ? adminMenuKeyboard() : residentMenuKeyboard(),
+  });
+}
+
+async function showPayMenu(chatId: number, session: UserSession) {
+  if (!session.unitId) {
+    await tgSend(chatId, "❌ Tiada unit dihubungkan dengan akaun ini.", { reply_markup: backButton("menu") });
+    return;
+  }
+
+  const bills = await db.bill.findMany({
+    where: { unitId: session.unitId, status: { in: ["PENDING", "OVERDUE"] } },
+    orderBy: { dueDate: "asc" },
+  });
+
+  if (bills.length === 0) {
+    await tgSend(chatId, "✅ Tiada bil tertunggak. Semua bil telah dibayar!", { reply_markup: backButton("menu") });
+    return;
+  }
+
+  let text = "💰 <b>Bil Tertunggak</b>\n\n";
+  const keyboard: any[] = [];
+
+  bills.slice(0, 10).forEach((b) => {
+    text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
+    keyboard.push([
+      {
+        text: `💳 Bayar ${b.monthYear} (RM ${Number(b.totalAmount).toFixed(2)})`,
+        callback_data: `pay_${b.id}`,
+      },
+    ]);
+  });
+
+  if (bills.length > 10) text += `\n...dan ${bills.length - 10} lagi\n`;
+
+  keyboard.push([{ text: "← Kembali", callback_data: "menu" }]);
+  await tgSend(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
+}
+
+async function showBillsMenu(chatId: number) {
+  const now = new Date();
+  const month = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  await cmdBillsPaged(chatId, month, 1);
+}
+
+async function showReportsMenu(chatId: number) {
+  const text = "📈 <b>Laporan</b>\n\nPilih jenis laporan:";
+  await tgSend(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📊 Penyelarasan Bulanan", callback_data: "reconciliation" }],
+        [{ text: "📋 Bil Lewat", callback_data: "overdue" }],
+        [{ text: "← Kembali", callback_data: "menu" }],
+      ],
+    },
+  });
+}
+
+async function showAdminManagementMenu(chatId: number) {
+  await tgSend(chatId, "👥 <b>Pengurusan Admin Telegram</b>", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📋 Senarai Admin", callback_data: "listadmins" }],
+        [{ text: "← Kembali", callback_data: "menu" }],
+      ],
+    },
+  });
+}
+
+// ── Resident commands ────────────────────────────────────────────────
+async function cmdCek(phoneOrEmail: string, chatId: number) {
+  const unit = await db.unit.findFirst({
+    where: { OR: [{ email: phoneOrEmail }, { phone: phoneOrEmail }] },
+    include: { bills: { orderBy: { dueDate: "desc" } } },
+  });
+  if (!unit) {
+    await tgSend(chatId, "❌ Unit tidak dijumpai.");
+    return;
+  }
+  const pending = unit.bills.filter((b) => b.status === "PENDING" || b.status === "OVERDUE");
+  const paid = unit.bills.filter((b) => b.status === "PAID");
+  const totalPending = pending.reduce((s, b) => s + Number(b.totalAmount), 0);
+
+  let text = `🏠 <b>Unit ${unit.block}-${unit.floor}-${unit.unitNo}</b>\n👤 <b>${unit.ownerName}</b>\n\n`;
+
+  if (pending.length > 0) {
+    text += `⚠️ <b>Bil Tertunggak: ${pending.length}</b>\n💰 Jumlah: RM ${totalPending.toFixed(2)}\n\n`;
+    pending.slice(0, 5).forEach((b) => {
+      const status = b.status === "OVERDUE" ? "🔴 LEWAT" : "🟡 TERTUNGGAK";
+      text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)} — ${status}\n`;
+    });
+    if (pending.length > 5) text += `\n...dan ${pending.length - 5} lagi\n`;
+  } else {
+    text += "✅ Tiada bil tertunggak!\n";
+  }
+
+  text += `\n📜 Bil Lunas: ${paid.length}`;
+
+  await tgSend(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💰 Bayar Sekarang", callback_data: "pay_menu" }],
+        [{ text: "← Kembali", callback_data: "menu" }],
+      ],
+    },
+  });
+}
+
+async function cmdHistory(chatId: number, session: UserSession) {
+  if (!session.unitId) {
+    await tgSend(chatId, "❌ Tiada unit dihubungkan.");
+    return;
+  }
+  const bills = await db.bill.findMany({
+    where: { unitId: session.unitId, status: "PAID" },
+    orderBy: { paidAt: "desc" },
+    take: 10,
+  });
+
+  if (bills.length === 0) {
+    await tgSend(chatId, "📜 Tiada rekod pembayaran lagi.", { reply_markup: backButton("menu") });
+    return;
+  }
+
+  let text = "📜 <b>Sejarah Pembayaran</b>\n\n";
+  bills.forEach((b) => {
+    const date = b.paidAt
+      ? new Date(b.paidAt).toLocaleDateString("ms-MY", { timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short", year: "numeric" })
+      : "-";
+    text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)} — ${date}\n`;
+  });
+
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
+}
+
+async function cmdPayBill(chatId: number, billId: string, session: UserSession) {
+  if (!session.unitId) {
+    await tgSend(chatId, "❌ Tiada unit dihubungkan.");
+    return;
+  }
+
+  const bill = await db.bill.findUnique({
+    where: { id: billId, unitId: session.unitId },
+    include: { unit: true },
+  });
+
+  if (!bill) {
+    await tgSend(chatId, "❌ Bil tidak dijumpai.");
+    return;
+  }
+  if (bill.status === "PAID") {
+    await tgSend(chatId, "✅ Bil ini telah dibayar.");
+    return;
+  }
+
+  // Apply gateway fee at payment time (same as web app)
+  const config = await db.config.findFirst();
+  const fixedFeeInRM = Number(config?.gatewayFeeFixed ?? 0) / 100;
+  const percentFee = Number(bill.baseAmount) * (Number(config?.gatewayFeePercent ?? 0) / 100);
+  const newAdditionalFee = percentFee + fixedFeeInRM;
+  const newTotalAmount =
+    Number(bill.baseAmount) +
+    newAdditionalFee -
+    Number(bill.discount) +
+    Number(bill.adjustment) +
+    Number(bill.penaltyAmount);
+
+  await db.bill.update({
+    where: { id: bill.id },
+    data: {
+      additionalFee: newAdditionalFee,
+      totalAmount: newTotalAmount,
+    },
+  });
+
+  const chipSecret = process.env.CHIP_SECRET_KEY;
+  const chipBrandId = process.env.CHIP_BRAND_ID;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const chipApiUrl = process.env.CHIP_API_URL || "https://gate.chip-in.asia/api/v1/";
+
+  if (!chipSecret || !chipBrandId) {
+    await tgSend(chatId, "❌ Sistem pembayaran tidak dikonfigurasi.");
+    return;
+  }
+
+  const chipRes = await fetch(`${chipApiUrl}purchases/`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${chipSecret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      brand_id: chipBrandId,
+      client: {
+        email: bill.unit.email,
+        full_name: bill.unit.ownerName,
+      },
+      purchase: {
+        products: [{
+          name: `Maintenance ${bill.monthYear}`,
+          price: Math.round(newTotalAmount * 100),
+          quantity: 1,
+        }],
+      },
+      success_redirect: `${appUrl}/dashboard/payment/success?bill=${bill.id}`,
+      failure_redirect: `${appUrl}/dashboard/payment/failed?bill=${bill.id}`,
+      cancel_redirect: `${appUrl}/dashboard/payment/cancelled?bill=${bill.id}`,
+      success_callback: `${appUrl}/api/webhooks/chip`,
+      send_receipt: false,
+      due_strict: true,
+    }),
+  });
+
+  const chipData = await chipRes.json();
+  if (!chipRes.ok) {
+    console.error("CHIP error:", chipData);
+    await tgSend(chatId, "❌ Ralat gateway pembayaran. Sila cuba lagi.");
+    return;
+  }
+
+  await db.bill.update({
+    where: { id: bill.id },
+    data: { chipBillId: String(chipData.id) },
+  });
+
+  const text = `💳 <b>Pembayaran Bil ${bill.monthYear}</b>\n\nJumlah: RM ${newTotalAmount.toFixed(2)}\n\nSila klik pautan di bawah untuk membayar:`;
+  await tgSend(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔗 Bayar Sekarang", url: chipData.checkout_url }],
+        [{ text: "← Kembali", callback_data: "pay_menu" }],
+      ],
+    },
+  });
+}
+
+// ── Admin commands ─────────────────────────────────────────────────
 async function cmdSummary(chatId: number) {
   const [pendingCount, paidCount, overdueCount, totalCollected] = await Promise.all([
     db.bill.count({ where: { status: "PENDING" } }),
@@ -36,87 +808,176 @@ async function cmdSummary(chatId: number) {
     db.bill.count({ where: { status: "OVERDUE" } }),
     db.bill.aggregate({ where: { status: "PAID" }, _sum: { totalAmount: true } }),
   ]);
-  const paidToday = await db.bill.count({ where: { status: "PAID", paidAt: { gte: new Date(Date.now() - 86400000) } } });
-  const text = "<b>Ringkasan Sistem Bayu</b>\n\n• Lunas: " + paidCount + "  |  Tertunggak: " + pendingCount + "  |  Lewat: " + overdueCount + "\n• Jumlah Kutipan: RM " + Number(totalCollected._sum.totalAmount || 0).toFixed(2) + "\n• Bayar Hari Ini: " + paidToday;
-  await tgSend(chatId, text);
+  const paidToday = await db.bill.count({
+    where: { status: "PAID", paidAt: { gte: new Date(Date.now() - 86400000) } },
+  });
+  const text =
+    `📊 <b>Ringkasan Sistem Bayu</b>\n\n` +
+    `✅ Lunas: ${paidCount}\n` +
+    `⏳ Tertunggak: ${pendingCount}\n` +
+    `🔴 Lewat: ${overdueCount}\n` +
+    `💰 Jumlah Kutipan: RM ${Number(totalCollected._sum.totalAmount || 0).toFixed(2)}\n` +
+    `📅 Bayar Hari Ini: ${paidToday}`;
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
 }
 
-// ADMIN: Bills
-async function cmdBills(month: string, chatId: number) {
-  const bills = await db.bill.findMany({ where: { monthYear: month }, include: { unit: true }, orderBy: { status: "asc" } });
-  if (bills.length === 0) { await tgSend(chatId, "<b>Bil " + month + "</b>\nTiada rekod bil."); return; }
-  const total = bills.reduce((s, b) => s + Number(b.totalAmount), 0);
-  let text = "<b>Bil " + month + "</b>\nJumlah: RM " + total.toFixed(2) + "\n\n";
-  bills.slice(0, 15).forEach((b) => { text += "• " + b.unit.block + "-" + b.unit.floor + "-" + b.unit.unitNo + ": RM " + Number(b.totalAmount).toFixed(2) + " (" + b.status + ")\n"; });
-  if (bills.length > 15) text += "\n...dan " + (bills.length - 15) + " lagi\n";
-  await tgSend(chatId, text);
+async function cmdBillsPaged(chatId: number, month: string, page: number) {
+  const limit = 15;
+  const skip = (page - 1) * limit;
+
+  const [bills, total] = await Promise.all([
+    db.bill.findMany({
+      where: { monthYear: month },
+      include: { unit: true },
+      orderBy: { status: "asc" },
+      skip,
+      take: limit,
+    }),
+    db.bill.count({ where: { monthYear: month } }),
+  ]);
+
+  if (bills.length === 0) {
+    await tgSend(chatId, `<b>Bil ${month}</b>\n\nTiada rekod bil.`, { reply_markup: backButton("menu") });
+    return;
+  }
+
+  const totalAmount = bills.reduce((s, b) => s + Number(b.totalAmount), 0);
+  let text = `🧾 <b>Bil ${month}</b>\n💰 Jumlah dipapar: RM ${totalAmount.toFixed(2)}\n\n`;
+
+  bills.forEach((b) => {
+    const status = b.status === "PAID" ? "✅" : b.status === "OVERDUE" ? "🔴" : "⏳";
+    text += `${status} ${b.unit.block}-${b.unit.floor}-${b.unit.unitNo}: RM ${Number(b.totalAmount).toFixed(2)}\n`;
+  });
+
+  const totalPages = Math.ceil(total / limit);
+  await tgSend(chatId, text, { reply_markup: paginationKeyboard(page, totalPages, "bills") });
 }
 
-// ADMIN: Overdue
 async function cmdOverdue(chatId: number) {
-  const bills = await db.bill.findMany({ where: { status: "OVERDUE" }, include: { unit: true }, orderBy: { dueDate: "asc" }, take: 20 });
-  if (bills.length === 0) { await tgSend(chatId, "<b>Bil Lewat</b>\n\nTiada bil lewat. Semua unit kemas!"); return; }
-  let text = "<b>Bil Lewat</b>\n" + bills.length + " unit:\n\n";
-  bills.forEach((b) => { text += "• " + b.unit.block + "-" + b.unit.floor + "-" + b.unit.unitNo + " (" + b.unit.ownerName + ")\n  " + b.monthYear + " — RM " + Number(b.totalAmount).toFixed(2) + "\n"; });
-  await tgSend(chatId, text);
+  const bills = await db.bill.findMany({
+    where: { status: "OVERDUE" },
+    include: { unit: true },
+    orderBy: { dueDate: "asc" },
+    take: 20,
+  });
+  if (bills.length === 0) {
+    await tgSend(chatId, "✅ Tiada bil lewat. Semua unit kemas!", { reply_markup: backButton("menu") });
+    return;
+  }
+  let text = `🔴 <b>Bil Lewat</b> — ${bills.length} unit\n\n`;
+  bills.forEach((b) => {
+    text += `• ${b.unit.block}-${b.unit.floor}-${b.unit.unitNo} (${b.unit.ownerName})\n  ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
+  });
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
 }
 
-// ADMIN: Unit detail
 async function cmdUnit(query: string, chatId: number) {
   const parts = query.split("-");
   let unit;
   if (parts.length === 3) {
-    unit = await db.unit.findFirst({ where: { block: parts[0], floor: parts[1], unitNo: parts[2] }, include: { bills: { orderBy: { monthYear: "desc" } } } });
+    unit = await db.unit.findFirst({
+      where: { block: parts[0], floor: parts[1], unitNo: parts[2] },
+      include: { bills: { orderBy: { monthYear: "desc" } } },
+    });
   }
-  if (!unit) unit = await db.unit.findFirst({ where: { ownerName: { contains: query, mode: "insensitive" } }, include: { bills: { orderBy: { monthYear: "desc" } } } });
-  if (!unit) { await tgSend(chatId, "❌ Unit tidak dijumpai. Cuba <b>A-1-01</b> atau nama pemilik."); return; }
+  if (!unit) {
+    unit = await db.unit.findFirst({
+      where: { ownerName: { contains: query, mode: "insensitive" } },
+      include: { bills: { orderBy: { monthYear: "desc" } } },
+    });
+  }
+  if (!unit) {
+    await tgSend(chatId, "❌ Unit tidak dijumpai. Cuba <b>A-1-01</b> atau nama pemilik.");
+    return;
+  }
   const pending = unit.bills.filter((b) => b.status === "PENDING" || b.status === "OVERDUE");
-  let text = "<b>Unit " + unit.block + "-" + unit.floor + "-" + unit.unitNo + "</b>\n" + unit.ownerName + "\nEmail: " + unit.email + "\nYuran: RM " + Number(unit.monthlyFee).toFixed(2) + "\n\n<b>Bil Tertunggak: " + pending.length + "</b>\n";
-  pending.slice(0, 5).forEach((b) => { text += "• " + b.monthYear + ": RM " + Number(b.totalAmount).toFixed(2) + " (" + b.status + ")\n"; });
-  await tgSend(chatId, text);
+  let text =
+    `🏠 <b>Unit ${unit.block}-${unit.floor}-${unit.unitNo}</b>\n` +
+    `👤 ${unit.ownerName}\n` +
+    `📧 ${unit.email}\n` +
+    `💰 Yuran: RM ${Number(unit.monthlyFee).toFixed(2)}\n\n` +
+    `⚠️ <b>Bil Tertunggak: ${pending.length}</b>\n`;
+  pending.slice(0, 5).forEach((b) => {
+    text += `• ${b.monthYear}: RM ${Number(b.totalAmount).toFixed(2)} (${b.status})\n`;
+  });
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
 }
 
-// ADMIN: Config view
 async function cmdConfig(chatId: number) {
   const config = await db.config.findFirst();
-  if (!config) { await tgSend(chatId, "❌ Tiada tetapan dijumpai."); return; }
-  const text = "<b>Tetapan Sistem</b>\n\n" +
-    "• Hari Tangguh Penalti: " + config.penaltyDays + "\n" +
-    "• Peratusan Penalti: " + Number(config.penaltyPercent).toFixed(2) + "%\n" +
-    "• Hari Retry: " + config.retryDays + "\n" +
-    "• Cubaan Retry Sehari: " + config.retryAttemptsPerDay + "\n" +
-    "• Yuran Gateway: " + Number(config.gatewayFeePercent).toFixed(2) + "%";
-  await tgSend(chatId, text);
-}
-
-// ADMIN: Config update helpers
-async function cmdSetConfig(field: string, value: number, chatId: number) {
-  const config = await db.config.findFirst();
-  if (!config) { await tgSend(chatId, "❌ Tiada tetapan dijumpai."); return; }
-
-  const validFields = ["penaltyDays", "penaltyPercent", "retryDays", "retryAttemptsPerDay", "gatewayFeePercent"];
-  if (!validFields.includes(field)) {
-    await tgSend(chatId, "❌ Medan tidak sah."); return;
+  if (!config) {
+    await tgSend(chatId, "❌ Tiada tetapan dijumpai.", { reply_markup: backButton("menu") });
+    return;
   }
 
-  await db.config.update({ where: { id: config.id }, data: { [field]: value } });
-  await tgSend(chatId, "✅ Tetapan <b>" + field + "</b> dikemaskini kepada <b>" + value + "</b>.");
+  const text =
+    `⚙️ <b>Tetapan Sistem</b>\n\n` +
+    `• Hari Tangguh Penalti: ${config.penaltyDays}\n` +
+    `• Peratusan Penalti: ${Number(config.penaltyPercent).toFixed(2)}%\n` +
+    `• Hari Retry: ${config.retryDays}\n` +
+    `• Cubaan Retry Sehari: ${config.retryAttemptsPerDay}\n` +
+    `• Yuran Gateway (%): ${Number(config.gatewayFeePercent).toFixed(2)}%\n` +
+    `• Yuran Gateway (tetap): ${config.gatewayFeeFixed} sen (RM ${(config.gatewayFeeFixed / 100).toFixed(2)})`;
+
+  await tgSend(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "✏️ Hari Penalti", callback_data: "config_edit_penaltyDays" }],
+        [{ text: "✏️ % Penalti", callback_data: "config_edit_penaltyPercent" }],
+        [{ text: "✏️ Hari Retry", callback_data: "config_edit_retryDays" }],
+        [{ text: "✏️ Cubaan Retry", callback_data: "config_edit_retryAttemptsPerDay" }],
+        [{ text: "✏️ % Gateway", callback_data: "config_edit_gatewayFeePercent" }],
+        [{ text: "← Kembali", callback_data: "menu" }],
+      ],
+    },
+  });
 }
 
-// ADMIN: List Telegram admins
+async function cmdSetConfig(field: string, value: number, chatId: number) {
+  const config = await db.config.findFirst();
+  if (!config) {
+    await tgSend(chatId, "❌ Tiada tetapan dijumpai.");
+    return;
+  }
+
+  const validFields = [
+    "penaltyDays",
+    "penaltyPercent",
+    "retryDays",
+    "retryAttemptsPerDay",
+    "gatewayFeePercent",
+  ];
+  if (!validFields.includes(field)) {
+    await tgSend(chatId, "❌ Medan tidak sah.");
+    return;
+  }
+
+  const oldValue = (config as any)[field];
+  await db.config.update({ where: { id: config.id }, data: { [field]: value } });
+
+  await tgSend(chatId, `✅ Tetapan <b>${field}</b> dikemaskini.\n\nLama: <b>${oldValue}</b>\nBaru: <b>${value}</b>`, {
+    reply_markup: backButton("config"),
+  });
+}
+
 async function cmdListAdmins(chatId: number) {
   const admins = await db.telegramAdmin.findMany({ orderBy: { createdAt: "desc" } });
-  if (admins.length === 0) { await tgSend(chatId, "Tiada admin Telegram didaftarkan."); return; }
-  let text = "<b>Senarai Admin Telegram</b>\n\n";
+  if (admins.length === 0) {
+    await tgSend(chatId, "👥 Tiada admin Telegram didaftarkan.", { reply_markup: backButton("admin_menu") });
+    return;
+  }
+  let text = "👥 <b>Senarai Admin Telegram</b>\n\n";
   admins.forEach((a) => {
-    text += "• " + a.name + " (" + a.telegramId + ") — " + (a.isActive ? "Aktif" : "Tidak Aktif") + "\n";
+    text += `• ${a.name} (${a.telegramId}) — ${a.isActive ? "✅ Aktif" : "❌ Tidak Aktif"}\n`;
   });
-  await tgSend(chatId, text);
+  await tgSend(chatId, text, { reply_markup: backButton("admin_menu") });
 }
 
-// ADMIN: Add Telegram admin
 async function cmdAddAdmin(args: string[], chatId: number) {
-  if (args.length < 2) { await tgSend(chatId, "❌ Guna: /addadmin <telegramId> <nama>"); return; }
+  if (args.length < 2) {
+    await tgSend(chatId, "❌ Guna: /addadmin <telegramId> <nama>");
+    return;
+  }
   const telegramId = args[0];
   const name = args.slice(1).join(" ");
 
@@ -126,76 +987,109 @@ async function cmdAddAdmin(args: string[], chatId: number) {
     update: { name, isActive: true },
   });
 
-  await tgSend(chatId, "✅ Admin <b>" + name + "</b> (" + telegramId + ") ditambah.");
+  await tgSend(chatId, `✅ Admin <b>${name}</b> (${telegramId}) ditambah.`);
 }
 
-// ADMIN: Remove Telegram admin
 async function cmdRemoveAdmin(telegramId: string, chatId: number) {
-  if (!telegramId) { await tgSend(chatId, "❌ Guna: /removeadmin <telegramId>"); return; }
+  if (!telegramId) {
+    await tgSend(chatId, "❌ Guna: /removeadmin <telegramId>");
+    return;
+  }
 
   await db.telegramAdmin.updateMany({
     where: { telegramId },
     data: { isActive: false },
   });
 
-  await tgSend(chatId, "✅ Admin " + telegramId + " ditamatkan.");
+  await tgSend(chatId, `✅ Admin ${telegramId} ditamatkan.`);
 }
 
-// HELP
+// ── HELP ─────────────────────────────────────────────────────────────
 async function cmdHelp(chatId: number, admin: boolean) {
-  let text = "<b>Bot Bayu Condo</b>\n\n<b>Penduduk:</b>\n/cek <email/telefon> — Semak bil anda\n\n";
+  let text = "🏢 <b>Bot Bayu Condo</b>\n\n";
+
+  text += "<b>Penduduk:</b>\n";
+  text += "• /login — Log masuk dengan emel + OTP\n";
+  text += "• /cek — Semak bil tertunggak\n";
+  text += "• /menu — Papar menu utama\n\n";
+
   if (admin) {
-    text += "<b>Admin:</b>\n" +
-      "/summary — Ringkasan kutipan\n" +
-      "/bills <bulan> — Bil mengikut bulan\n" +
-      "/unit <unit> — Detail unit (A-1-01)\n" +
-      "/overdue — Senarai bil lewat\n" +
-      "/config — Tetapan sistem\n" +
-      "/setpenaltydays <hari>\n" +
-      "/setpenaltypercent <%>\n" +
-      "/setretrydays <hari>\n" +
-      "/setretryattempts <bilangan>\n" +
-      "/setgatewayfee <%>\n" +
-      "/listadmins — Senarai admin\n" +
-      "/addadmin <id> <nama>\n" +
-      "/removeadmin <id>\n";
+    text += "<b>Admin:</b>\n";
+    text += "• /summary — Ringkasan kutipan\n";
+    text += "• /bills <bulan> — Bil mengikut bulan\n";
+    text += "• /unit <unit> — Detail unit (A-1-01)\n";
+    text += "• /overdue — Senarai bil lewat\n";
+    text += "• /config — Tetapan sistem\n";
+    text += "• /listadmins — Senarai admin\n";
+    text += "• /addadmin <id> <nama>\n";
+    text += "• /removeadmin <id>\n\n";
+    text += "<b>Pintasan Tetapan:</b>\n";
+    text += "• /setpenaltydays <hari>\n";
+    text += "• /setpenaltypercent <%>\n";
+    text += "• /setretrydays <hari>\n";
+    text += "• /setretryattempts <bilangan>\n";
+    text += "• /setgatewayfee <%>\n";
   }
-  await tgSend(chatId, text);
+
+  text += "\n💡 Guna butang di bawah untuk navigasi pantas.";
+
+  await tgSend(chatId, text, {
+    reply_markup: admin
+      ? adminMenuKeyboard()
+      : { inline_keyboard: [[{ text: "📋 Menu Utama", callback_data: "menu" }]] },
+  });
 }
 
-// Main handler
-export async function handleTelegramUpdate(update: any) {
-  const msg = update.message; if (!msg?.text) return;
-  const text = msg.text.trim(); const chatId = msg.chat.id; const userId = msg.from.id; const admin = isAdmin(userId);
-  const parts = text.split(/\s+/); const cmd = parts[0].toLowerCase();
-  try {
-    switch (cmd) {
-      case "/start": case "/help": await cmdHelp(chatId, admin); break;
-      case "/cek":
-        if (!parts[1]) await tgSend(chatId, "❌ Guna: /cek <email> atau /cek <nombor telefon>");
-        else await cmdCek(parts[1], chatId); break;
-      case "/summary": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSummary(chatId); break;
-      case "/bills": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdBills(parts[1] || (new Date().getFullYear() + "-" + String(new Date().getMonth()+1).padStart(2, "0")), chatId); break;
-      case "/unit": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); if (!parts[1]) await tgSend(chatId, "❌ Guna: /unit A-1-01"); else await cmdUnit(parts[1], chatId); break;
-      case "/overdue": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdOverdue(chatId); break;
-      case "/config": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdConfig(chatId); break;
-      case "/setpenaltydays": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("penaltyDays", Number(parts[1]), chatId); break;
-      case "/setpenaltypercent": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("penaltyPercent", Number(parts[1]), chatId); break;
-      case "/setretrydays": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("retryDays", Number(parts[1]), chatId); break;
-      case "/setretryattempts": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("retryAttemptsPerDay", Number(parts[1]), chatId); break;
-      case "/setgatewayfee": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("gatewayFeePercent", Number(parts[1]), chatId); break;
-      case "/listadmins": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdListAdmins(chatId); break;
-      case "/addadmin": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdAddAdmin(parts.slice(1), chatId); break;
-      case "/removeadmin": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdRemoveAdmin(parts[1], chatId); break;
-      default: break;
-    }
-  } catch (err) { console.error("Telegram command error:", err); await tgSend(chatId, "❌ Ralat sistem. Sila cuba sebentar lagi."); }
+// ── Command registration ─────────────────────────────────────────────
+export async function registerTelegramCommands() {
+  if (!token()) {
+    console.warn("TELEGRAM_BOT_TOKEN not set — skipping command registration");
+    return;
+  }
+
+  const commands = [
+    { command: "start", description: "Mula / Papar menu" },
+    { command: "login", description: "Log masuk dengan emel + OTP" },
+    { command: "cek", description: "Semak bil tertunggak" },
+    { command: "menu", description: "Papar menu utama" },
+    { command: "help", description: "Bantuan" },
+    { command: "summary", description: "[Admin] Ringkasan sistem" },
+    { command: "bills", description: "[Admin] Bil mengikut bulan" },
+    { command: "unit", description: "[Admin] Cari unit" },
+    { command: "overdue", description: "[Admin] Bil lewat" },
+    { command: "config", description: "[Admin] Tetapan sistem" },
+    { command: "listadmins", description: "[Admin] Senarai admin" },
+  ];
+
+  const res = await fetch(`https://api.telegram.org/bot${token()}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ commands }),
+  });
+
+  if (!res.ok) {
+    console.error("Failed to register Telegram commands:", await res.text());
+  } else {
+    console.log("Telegram commands registered successfully");
+  }
 }
 
-// Proactive notification helpers
+// ── Proactive notifications ──────────────────────────────────────────
 export async function notifyAdmins(text: string) {
-  const admins = (process.env.TELEGRAM_ADMIN_IDS || "").split(",").map((s) => parseInt(s.trim())).filter(Boolean);
+  const admins = (process.env.TELEGRAM_ADMIN_IDS || "")
+    .split(",")
+    .map((s) => parseInt(s.trim()))
+    .filter(Boolean);
   for (const id of admins) {
     await tgSend(id, text);
   }
+}
+
+export async function notifyResident(email: string, text: string) {
+  // Find any active session for this user
+  userSessions.forEach(async (session, chatId) => {
+    if (session.email === email) {
+      await tgSend(chatId, text);
+    }
+  });
 }

@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import { handleTelegramUpdate } from '@/lib/telegram';
+import { NextResponse } from "next/server";
+import { handleTelegramUpdate } from "@/lib/telegram";
 import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
@@ -7,14 +7,14 @@ export async function POST(request: Request) {
     const ip = getClientIP(request);
     const limit = await rateLimit(ip, "webhook");
     if (!limit.allowed) {
-      return NextResponse.json({ ok: true }); // Silently accept to avoid Telegram retries
+      return NextResponse.json({ ok: true });
     }
 
     const body = await request.json();
     await handleTelegramUpdate(body);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('Telegram webhook error:', err);
+    console.error("Telegram webhook error:", err);
     return NextResponse.json({ ok: true });
   }
 }
