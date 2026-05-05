@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     }
 
     const event = body.event || body.event_type || "";
-    const purchase = body.purchase || body.data?.purchase || {};
+    const purchase = body.purchase || body.data?.purchase || (body.type === "purchase" ? body : {});
 
     console.log("[webhook] CHIP event received:", event, "purchase.status:", purchase.status, "purchase.id:", purchase.id);
 
