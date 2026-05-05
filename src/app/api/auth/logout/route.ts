@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     await deleteSession(token);
   }
 
-  const response = NextResponse.json({ success: true });
+  const response = NextResponse.redirect(new URL("/login", request.url));
   response.cookies.set("session_token", "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
