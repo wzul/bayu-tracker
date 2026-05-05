@@ -256,7 +256,7 @@ export const translations = {
 export type TranslationKey = keyof (typeof translations)["ms"];
 
 export function t(key: TranslationKey, lang: Language, vars?: Record<string, string>): string {
-  let text = translations[lang][key] || translations["ms"][key] || key;
+  let text: string = translations[lang][key] || translations["ms"][key] || key;
   if (vars) {
     Object.entries(vars).forEach(([k, v]) => {
       text = text.replace(`{${k}}`, v);
