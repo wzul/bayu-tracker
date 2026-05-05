@@ -7,6 +7,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 
 interface Bill {
   id: string;
+  uuid: string;
   monthYear: string;
   totalAmount: number;
   dueDate: string;
@@ -23,6 +24,7 @@ export default function BillsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [status, setStatus] = useState("");
   const [monthYear, setMonthYear] = useState("");
+  const [uuidQuery, setUuidQuery] = useState("");
   const { lang } = useLanguage();
 
   const fetchBills = useCallback(async () => {
@@ -32,6 +34,7 @@ export default function BillsPage() {
       limit: "20",
       ...(status && { status }),
       ...(monthYear && { monthYear }),
+      ...(uuidQuery.trim() && { uuid: uuidQuery.trim().toLowerCase() }),
     });
     const res = await fetch(`/api/admin/bills?${params}`);
     const data = await res.json();
@@ -40,7 +43,7 @@ export default function BillsPage() {
       setTotalPages(data.totalPages);
     }
     setLoading(false);
-  }, [page, status, monthYear]);
+  }, [page, status, monthYear, uuidQuery]);
 
   useEffect(() => { fetchBills(); }, [fetchBills]);
 
@@ -79,13 +82,21 @@ export default function BillsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 flex gap-3 flex-wrap">
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="px-3 py-2 border rounded-lg">
+        <input
+          type="text"
+          value={uuidQuery}
+          onChange={(e) => { setUuidQuery(e.target.value); setPage(1); }}
+          placeholder="No. Rujukan (7 aksara)"
+          className="px-3 py-2 border rounded-lg text-sm w-40"
+          maxLength={7}
+        />
+        <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="px-3 py-2 border rounded-lg">
           <option value="">Semua Status</option>
           <option value="PENDING">Tertunggak</option>
           <option value="PAID">Lunas</option>
           <option value="OVERDUE">Lewat</option>
         </select>
-        <input type="month" value={monthYear} onChange={(e) => setMonthYear(e.target.value)} className="px-3 py-2 border rounded-lg" placeholder="YYYY-MM" />
+        <input type="month" value={monthYear} onChange={(e) => { setMonthYear(e.target.value); setPage(1); }} className="px-3 py-2 border rounded-lg" placeholder="YYYY-MM" />
         <button onClick={() => { setPage(1); fetchBills(); }} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Cari</button>
       </div>
 
@@ -93,6 +104,7 @@ export default function BillsPage() {
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
             <tr>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">No. Ruj</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Unit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Bulan</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Jumlah</th>
@@ -102,9 +114,10 @@ export default function BillsPage() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {loading ? (<tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Memuat...</td></tr>)
-              : bills.length === 0 ? (<tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Tiada bil</td></tr>)
+            {loading ? (<tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Memuat...</td></tr>)
+              : bills.length === 0 ? (<tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Tiada bil</td></tr>)
               : bills.map((b) => (<tr key={b.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
                 <td className="px-4 py-3"><div className="text-sm font-medium">{b.unit.block}-{b.unit.floor}-{b.unit.unitNo}</div><div className="text-xs text-gray-500">{b.unit.ownerName}</div></td>
                 <td className="px-4 py-3 text-sm">{fmtMonthYear(b.monthYear, lang)}</td>
                 <td className="px-4 py-3 text-sm text-right font-medium">RM {Number(b.totalAmount).toFixed(2)}</td>
@@ -114,7 +127,8 @@ export default function BillsPage() {
                   {b.status === "PENDING" && <button onClick={() => handleMarkPaid(b.id)} className="text-green-600 hover:underline text-sm">Tandai Lunas</button>}
                   <button onClick={() => handleDelete(b.id)} className="text-red-600 hover:underline text-sm">Padam</button>
                 </td>
-              </tr>))}
+              </tr>)
+            )}
           </tbody>
         </table>
       </div>

@@ -82,6 +82,7 @@ model Session {
 
 model Bill {
   id                   String          @id @default(cuid())
+  uuid                 String          @default(uuid()) @unique
   unitId               String
   unit                 Unit            @relation(fields: [unitId], references: [id])
   monthYear            String          // "2026-05"

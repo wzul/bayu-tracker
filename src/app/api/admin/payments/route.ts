@@ -34,7 +34,16 @@ export async function GET(request: Request) {
         skip,
         take: limit,
         orderBy: { paidAt: "desc" },
-        include: {
+        select: {
+          id: true,
+          uuid: true,
+          monthYear: true,
+          totalAmount: true,
+          paidAt: true,
+          paymentMethod: true,
+          chipTransactionId: true,
+          receiptNo: true,
+          receiptUrl: true,
           unit: { select: { block: true, floor: true, unitNo: true, ownerName: true } },
         },
       }),

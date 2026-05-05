@@ -7,6 +7,7 @@ import { fmtMYT, fmtMYTFull, fmtMonthYear } from "@/lib/date";
 
 interface Payment {
   id: string;
+  uuid: string;
   monthYear: string;
   totalAmount: number;
   paidAt: string | null;
@@ -103,6 +104,7 @@ export default function PaymentsPage() {
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
             <tr>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">No. Ruj</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("unit", lang)}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
@@ -114,12 +116,13 @@ export default function PaymentsPage() {
           </thead>
           <tbody className="divide-y">
             {loading ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{t("loading", lang)}</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">{t("loading", lang)}</td></tr>
             ) : payments.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{t("noPayments", lang)}</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">{t("noPayments", lang)}</td></tr>
             ) : (
               payments.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm font-mono text-gray-500">{p.uuid.slice(0, 7)}</td>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium">{p.unit.block}-{p.unit.floor}-{p.unit.unitNo}</div>
                     <div className="text-xs text-gray-500">{p.unit.ownerName}</div>

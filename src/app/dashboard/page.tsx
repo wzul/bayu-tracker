@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { fmtMYT, fmtMonthYear } from "@/lib/date";
 import { useLanguage } from "@/components/LanguageProvider";
 import { t } from "@/lib/i18n";
 
 interface Bill {
   id: string;
+  uuid: string;
   monthYear: string;
   baseAmount: number;
   additionalFee: number;
@@ -32,23 +33,38 @@ export default function ResidentDashboard() {
   const [bulkPayLoading, setBulkPayLoading] = useState(false);
   const [gatewayFeeFixed, setGatewayFeeFixed] = useState(0);
   const [gatewayFeePercent, setGatewayFeePercent] = useState(0);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterUuid, setFilterUuid] = useState("");
   const { lang } = useLanguage();
+
+  const fetchBills = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterMonth) params.set("monthYear", filterMonth);
+    if (filterUuid) params.set("uuid", filterUuid.trim().toLowerCase());
+    const res = await fetch(`/api/dashboard/bills?${params}`);
+    const data = await res.json();
+    setBills(data.bills || []);
+    setGatewayFeeFixed(Number(data.gatewayFeeFixed ?? 0));
+    setGatewayFeePercent(Number(data.gatewayFeePercent ?? 0));
+    setLoading(false);
+    setSelected(new Set());
+  }, [filterStatus, filterMonth, filterUuid]);
 
   useEffect(() => {
     fetch("/api/dashboard/profile")
       .then(r => r.json())
       .then(data => {
         if (data.unit) setUnit(data.unit);
-        return fetch("/api/dashboard/bills");
-      })
-      .then(r => r.json())
-      .then(data => {
-        setBills(data.bills || []);
-        setGatewayFeeFixed(Number(data.gatewayFeeFixed ?? 0));
-        setGatewayFeePercent(Number(data.gatewayFeePercent ?? 0));
-        setLoading(false);
+        return fetchBills();
       });
   }, []);
+
+  useEffect(() => {
+    fetchBills();
+  }, [fetchBills]);
 
   const pendingBills = bills.filter(b => b.status === "PENDING" || b.status === "OVERDUE");
   const paidBills = bills.filter(b => b.status === "PAID");
@@ -145,6 +161,36 @@ export default function ResidentDashboard() {
         )}
       </div>
 
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex gap-3 flex-wrap">
+        <input
+          type="text"
+          value={filterUuid}
+          onChange={(e) => setFilterUuid(e.target.value)}
+          placeholder={lang === "ms" ? "No. Rujukan (7 aksara)" : "Ref No. (7 chars)"}
+          className="px-3 py-2 border rounded-lg text-sm w-40"
+          maxLength={7}
+        />
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm">
+          <option value="">{lang === "ms" ? "Semua Status" : "All Status"}</option>
+          <option value="PENDING">{t("statusPending", lang)}</option>
+          <option value="PAID">{t("statusPaid", lang)}</option>
+          <option value="OVERDUE">{t("statusOverdue", lang)}</option>
+        </select>
+        <input
+          type="month"
+          value={filterMonth}
+          onChange={(e) => setFilterMonth(e.target.value)}
+          className="px-3 py-2 border rounded-lg text-sm"
+        />
+        <button
+          onClick={() => { setFilterStatus(""); setFilterMonth(""); setFilterUuid(""); }}
+          className="px-4 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700"
+        >
+          {lang === "ms" ? "Reset" : "Reset"}
+        </button>
+      </div>
+
       {selected.size > 0 && (gatewayFeeFixed > 0 || gatewayFeePercent > 0) && (
         <div className="mb-3 text-sm text-gray-500 text-right space-y-1">
           <div>{lang === "ms" ? "Jumlah bil:" : "Bills total:"} RM {selectedBaseTotal.toFixed(2)}</div>
@@ -158,6 +204,7 @@ export default function ResidentDashboard() {
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="px-4 py-3 w-10"></th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("dueDate", lang)} (MYT)</th>
@@ -167,7 +214,7 @@ export default function ResidentDashboard() {
           </thead>
           <tbody className="divide-y">
             {bills.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">{t("noBills", lang)}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{t("noBills", lang)}</td></tr>
             ) : bills.map(b => (
               <tr key={b.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
@@ -179,6 +226,7 @@ export default function ResidentDashboard() {
                     />
                   )}
                 </td>
+                <td className="px-4 py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
                 <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                 <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.dueDate)}</td>

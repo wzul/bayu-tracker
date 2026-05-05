@@ -7,6 +7,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 
 interface Bill {
   id: string;
+  uuid: string;
   monthYear: string;
   totalAmount: number;
   dueDate: string;
@@ -100,6 +101,7 @@ export default function UnitDetailPage({ params }: { params: { id: string } }) {
           <table className="w-full">
             <thead className="border-b">
               <tr>
+                <th className="text-left py-2 text-sm text-gray-500">No. Ruj</th>
                 <th className="text-left py-2 text-sm text-gray-500">Bulan</th>
                 <th className="text-right py-2 text-sm text-gray-500">Jumlah</th>
                 <th className="text-left py-2 text-sm text-gray-500 px-4">Tarikh Akhir</th>
@@ -110,6 +112,7 @@ export default function UnitDetailPage({ params }: { params: { id: string } }) {
             <tbody className="divide-y">
               {unit.bills.map((b) => (
                 <tr key={b.id} className="hover:bg-gray-50">
+                  <td className="py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
                   <td className="py-3 text-sm font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                   <td className="py-3 text-sm text-right text-gray-700">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="py-3 text-sm text-gray-500 px-4">{fmtMYT(b.dueDate)}</td>

@@ -7,6 +7,7 @@ import { t } from "@/lib/i18n";
 
 interface Bill {
   id: string;
+  uuid: string;
   monthYear: string;
   totalAmount: number;
   status: string;
@@ -61,6 +62,7 @@ export default function PaymentHistoryPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b">
               <tr>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "No. Rujukan" : "Ref No."}</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("status", lang)}</th>
@@ -72,6 +74,7 @@ export default function PaymentHistoryPage() {
             <tbody className="divide-y">
               {paidBills.map((b) => (
                 <tr key={b.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm font-mono text-gray-500">{b.uuid.slice(0, 7)}</td>
                   <td className="px-4 py-3 font-medium">{fmtMonthYear(b.monthYear, lang)}</td>
                   <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3">

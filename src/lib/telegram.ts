@@ -1,11 +1,13 @@
 import { db } from "./db";
 import { sendEmail } from "./email";
 import {
+  initTelegramOtp,
   setTelegramOtp,
-  verifyTelegramOtp,
+  verifyTelegramPlanet,
   getTelegramOtpEmail,
   hasTelegramOtp,
-  generateOtp,
+  generatePlanetOtp,
+  clearTelegramOtp,
 } from "./otp";
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN;
@@ -173,9 +175,9 @@ async function handleCallbackQuery(cb: any) {
 
   await tgAnswerCallback(cb.id);
 
-  // Auth-required callbacks (except menu/help/logout)
+  // Auth-required callbacks (except menu/help/logout/planet)
   const publicCallbacks = ["menu", "help", "login", "logout"];
-  if (!publicCallbacks.includes(data) && !data.startsWith("noop")) {
+  if (!publicCallbacks.includes(data) && !data.startsWith("noop") && !data.startsWith("planet_")) {
     const session = requireAuth(chatId);
     if (!session && !isAdmin(chatId)) {
       await tgEditMessage(chatId, messageId, "🔒 Sila log masuk terlebih dahulu.", {
@@ -185,6 +187,62 @@ async function handleCallbackQuery(cb: any) {
       });
       return;
     }
+  }
+
+  // Planet OTP verification
+  if (data.startsWith("planet_")) {
+    const selectedPlanet = data.replace("planet_", "");
+
+    if (!hasTelegramOtp(chatId)) {
+      await tgEditMessage(chatId, messageId, "🔒 Sesi OTP tamat. Sila log masuk semula.", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
+        },
+      });
+      return;
+    }
+
+    if (!verifyTelegramPlanet(chatId, selectedPlanet)) {
+      await tgAnswerCallback(cb.id, "❌ Salah! Cuba lagi.");
+      return;
+    }
+
+    // Success!
+    const otpEmail = getTelegramOtpEmail(chatId);
+    clearTelegramOtp(chatId);
+
+    const user = await db.user.findUnique({
+      where: { email: otpEmail || "" },
+      include: { unit: true },
+    });
+    if (!user) {
+      await tgEditMessage(chatId, messageId, "❌ Ralat pengesahan. Sila cuba lagi.", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
+        },
+      });
+      return;
+    }
+
+    userSessions.set(chatId, {
+      userId: user.id,
+      email: user.email,
+      unitId: user.unitId,
+      role: user.role,
+      authenticatedAt: new Date(),
+    });
+
+    await tgEditMessage(
+      chatId,
+      messageId,
+      `✅ Log masuk berjaya! Selamat datang, <b>${user.unit?.ownerName || user.email}</b>.`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: "📋 Menu Utama", callback_data: "menu" }]],
+        },
+      }
+    );
+    return;
   }
 
   // Route callbacks
@@ -488,12 +546,33 @@ async function handleMessage(msg: any) {
 
 // ── Auth flows ───────────────────────────────────────────────────────
 async function startOtpFlow(chatId: number) {
-  setTelegramOtp(chatId, "");
+  initTelegramOtp(chatId);
   await tgSend(chatId, "🔐 <b>Log Masuk</b>\n\nSila masukkan alamat emel anda:");
 }
 
 async function handleOtpReply(chatId: number, text: string) {
   const email = getTelegramOtpEmail(chatId);
+
+  // Allow commands to escape OTP flow
+  if (text.startsWith("/")) {
+    if (text.toLowerCase().startsWith("/login")) {
+      await startOtpFlow(chatId);
+      return;
+    }
+    if (text.toLowerCase().startsWith("/start") || text.toLowerCase().startsWith("/menu")) {
+      clearTelegramOtp(chatId);
+      await showMainMenu(chatId, isAdmin(chatId));
+      return;
+    }
+    if (text.toLowerCase().startsWith("/help")) {
+      clearTelegramOtp(chatId);
+      await cmdHelp(chatId, isAdmin(chatId));
+      return;
+    }
+    clearTelegramOtp(chatId);
+    await tgSend(chatId, "❌ Log masuk dibatalkan. Taip /login untuk mula semula.");
+    return;
+  }
 
   // Step 1: email input
   if (!email) {
@@ -513,18 +592,19 @@ async function handleOtpReply(chatId: number, text: string) {
       return;
     }
 
-    const code = generateOtp();
-    setTelegramOtp(chatId, inputEmail, code);
+    const { planet, options } = generatePlanetOtp();
+    setTelegramOtp(chatId, inputEmail, planet);
 
     const sent = await sendEmail({
       to: inputEmail,
-      subject: "Kod OTP — Bayu Condo",
-      html: `<h2>Kod Pengesahan Bayu Condo</h2>
-        <p>Kod OTP anda: <strong style="font-size:24px; letter-spacing:4px;">${code}</strong></p>
-        <p>Kod ini sah selama 10 minit.</p>
-        <p>Jika anda tidak meminta kod ini, sila abaikan emel ini.</p>
+      subject: "Pengesahan Log Masuk — Bayu Condo",
+      html: `<h2>Pengesahan Log Masuk Bayu Condo</h2>
+        <p>Nama planet anda: <strong style="font-size:24px; letter-spacing:2px;">${planet}</strong></p>
+        <p>Sila pilih nama planet yang betul di aplikasi Telegram.</p>
+        <p>Pengesahan ini sah selama 10 minit.</p>
+        <p>Jika anda tidak meminta pengesahan ini, sila abaikan emel ini.</p>
       `,
-      text: `Kod OTP Bayu Condo anda: ${code}. Kod ini sah selama 10 minit.`,
+      text: `Nama planet pengesahan Bayu Condo anda: ${planet}. Pilih yang betul di Telegram. Sah selama 10 minit.`,
     });
 
     if (!sent) {
@@ -532,40 +612,30 @@ async function handleOtpReply(chatId: number, text: string) {
       return;
     }
 
-    await tgSend(chatId, `📧 Kod 6-digit telah dihantar ke <b>${inputEmail}</b>.\n\nSila masukkan kod tersebut:`);
+    // Build inline keyboard with 4 planet buttons (2 per row)
+    const keyboard: any[] = [];
+    for (let i = 0; i < options.length; i += 2) {
+      const row: any[] = [];
+      row.push({ text: options[i], callback_data: `planet_${options[i]}` });
+      if (options[i + 1]) {
+        row.push({ text: options[i + 1], callback_data: `planet_${options[i + 1]}` });
+      }
+      keyboard.push(row);
+    }
+
+    await tgSend(
+      chatId,
+      `📧 Emel pengesahan telah dihantar ke <b>${inputEmail}</b>.\n\nSila pilih nama planet yang betul:`,
+      { reply_markup: { inline_keyboard: keyboard } }
+    );
     return;
   }
 
-  // Step 2: OTP verification
-  const inputCode = text.trim();
-  if (!verifyTelegramOtp(chatId, inputCode)) {
-    await tgSend(chatId, "❌ Kod OTP salah atau telah tamat tempoh. Sila cuba lagi:");
-    return;
-  }
-
-  // Success
-  const user = await db.user.findUnique({
-    where: { email },
-    include: { unit: true },
-  });
-  if (!user) {
-    await tgSend(chatId, "❌ Ralat pengesahan. Sila cuba lagi.");
-    return;
-  }
-
-  userSessions.set(chatId, {
-    userId: user.id,
-    email: user.email,
-    unitId: user.unitId,
-    role: user.role,
-    authenticatedAt: new Date(),
-  });
-
-  await tgSend(chatId, `✅ Log masuk berjaya! Selamat datang, <b>${user.unit?.ownerName || user.email}</b>.`, {
-    reply_markup: {
-      inline_keyboard: [[{ text: "📋 Menu Utama", callback_data: "menu" }]],
-    },
-  });
+  // If email is already set, user should be clicking inline keyboard buttons
+  await tgSend(
+    chatId,
+    "❌ Sila pilih nama planet yang betul dari butang di atas, atau taip /login untuk mula semula."
+  );
 }
 
 // ── Menu display ─────────────────────────────────────────────────────
@@ -1027,7 +1097,7 @@ async function cmdHelp(chatId: number, admin: boolean) {
   let text = "🏢 <b>Bot Bayu Condo</b>\n\n";
 
   text += "<b>Penduduk:</b>\n";
-  text += "• /login — Log masuk dengan emel + OTP\n";
+  text += "• /login — Log masuk dengan emel + pilihan planet\n";
   text += "• /cek — Semak bil tertunggak\n";
   text += "• /menu — Papar menu utama\n\n";
 

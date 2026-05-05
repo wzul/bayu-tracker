@@ -86,7 +86,9 @@ function PaymentSuccessContent() {
 
         {bill && (
           <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
-            <p className="text-sm text-gray-500">{t("month", lang)}</p>
+            <p className="text-sm text-gray-500">{lang === "ms" ? "No. Rujukan" : "Ref No."}</p>
+            <p className="font-medium text-lg font-mono">{bill.uuid?.slice(0, 7)}</p>
+            <p className="text-sm text-gray-500 mt-2">{t("month", lang)}</p>
             <p className="font-medium text-lg">{bill.monthYear}</p>
             <p className="text-sm text-gray-500 mt-2">{t("amount", lang)}</p>
             <p className="font-medium text-lg text-green-600">
