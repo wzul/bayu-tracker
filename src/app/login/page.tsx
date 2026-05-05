@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
+import { t } from "@/lib/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -10,6 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { lang } = useLanguage();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +30,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Login gagal");
+        setError(data.error || t("loginFailed", lang));
         return;
       }
 
@@ -36,7 +40,7 @@ export default function LoginPage() {
         router.push("/dashboard");
       }
     } catch {
-      setError("Ralat server. Sila cuba lagi.");
+      setError(t("serverError", lang));
     } finally {
       setLoading(false);
     }
@@ -45,7 +49,10 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100">
       <div className="w-full max-w-md p-8 bg-white rounded shadow">
-        <h1 className="text-2xl font-bold mb-6 text-center">Sistem Maintenance Kondo</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">{t("condoSystem", lang)}</h1>
+          <LanguageSwitcher />
+        </div>
 
         {error && (
           <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>
@@ -53,7 +60,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
+            <label className="block text-sm font-medium mb-1">{t("email", lang)}</label>
             <input
               type="email"
               required
@@ -64,7 +71,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Kata Laluan</label>
+            <label className="block text-sm font-medium mb-1">{t("password", lang)}</label>
             <input
               type="password"
               required
@@ -82,7 +89,7 @@ export default function LoginPage() {
               onChange={(e) => setRememberMe(e.target.checked)}
               className="mr-2"
             />
-            <label htmlFor="remember" className="text-sm">Ingati saya (30 hari)</label>
+            <label htmlFor="remember" className="text-sm">{t("rememberMe", lang)}</label>
           </div>
 
           <button
@@ -90,7 +97,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? "Log masuk..." : "Log Masuk"}
+            {loading ? t("loggingIn", lang) : t("login", lang)}
           </button>
         </form>
       </div>

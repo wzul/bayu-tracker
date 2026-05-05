@@ -145,6 +145,7 @@ model Config {
   retryDays             Int     @default(3)
   retryAttemptsPerDay   Int     @default(2)
   gatewayFeePercent     Decimal @db.Decimal(5, 2) @default(0)
+  gatewayFeeFixed       Int     @default(0)
   updatedAt             DateTime @updatedAt
 }
 

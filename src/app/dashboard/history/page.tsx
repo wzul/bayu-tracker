@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { fmtMYT } from "@/lib/date";
+import { useLanguage } from "@/components/LanguageProvider";
+import { t } from "@/lib/i18n";
 
 interface Bill {
   id: string;
@@ -16,6 +18,7 @@ interface Bill {
 export default function PaymentHistoryPage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
+  const { lang } = useLanguage();
 
   useEffect(() => {
     fetch("/api/dashboard/bills")
@@ -35,27 +38,35 @@ export default function PaymentHistoryPage() {
     return "bg-gray-100 text-gray-800";
   };
 
+  const methodLabel = (m: string | null) => {
+    if (!m) return "-";
+    if (m === "CARD") return t("methodCard", lang);
+    if (m === "FPX") return t("methodFpx", lang);
+    if (m === "CASH") return t("methodCash", lang);
+    return m;
+  };
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Sejarah Pembayaran</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">{t("history", lang)}</h1>
 
       {loading ? (
-        <div className="text-center text-gray-500">Memuat...</div>
+        <div className="text-center text-gray-500">{t("loading", lang)}</div>
       ) : paidBills.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">
-          Tiada rekod pembayaran lagi.
+          {lang === "ms" ? "Tiada rekod pembayaran lagi." : "No payment records yet."}
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <table className="w-full">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Bulan</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Jumlah</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Dibayar Pada</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Kaedah</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Resit</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("month", lang)}</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{t("amount", lang)}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{t("status", lang)}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "Dibayar Pada" : "Paid On"}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">{lang === "ms" ? "Kaedah" : "Method"}</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">{lang === "ms" ? "Resit" : "Receipt"}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -64,14 +75,14 @@ export default function PaymentHistoryPage() {
                   <td className="px-4 py-3 font-medium">{b.monthYear}</td>
                   <td className="px-4 py-3 text-right">RM {Number(b.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{b.status}</span>
+                    <span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{t("statusPaid", lang)}</span>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.paidAt)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{b.paymentMethod || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{methodLabel(b.paymentMethod)}</td>
                   <td className="px-4 py-3 text-right">
                     {b.receiptUrl ? (
                       <a href={b.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm">
-                        Muat Turun
+                        {lang === "ms" ? "Muat Turun" : "Download"}
                       </a>
                     ) : (
                       <span className="text-sm text-gray-400">-</span>

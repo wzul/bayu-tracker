@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
+import { t } from "@/lib/i18n";
 
 interface Config {
   id: string;
@@ -9,6 +11,7 @@ interface Config {
   retryDays: number;
   retryAttemptsPerDay: number;
   gatewayFeePercent: number;
+  gatewayFeeFixed: number;
 }
 
 export default function SettingsPage() {
@@ -16,6 +19,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const { lang } = useLanguage();
 
   useEffect(() => {
     fetch("/api/admin/config")
@@ -41,26 +45,27 @@ export default function SettingsPage() {
         retryDays: config.retryDays,
         retryAttemptsPerDay: config.retryAttemptsPerDay,
         gatewayFeePercent: config.gatewayFeePercent,
+        gatewayFeeFixed: config.gatewayFeeFixed,
       }),
     });
 
     setSaving(false);
     if (res.ok) {
-      setMessage("Tetapan disimpan successfully.");
+      setMessage(t("settingsSaved", lang));
     } else {
-      setMessage("Gagal menyimpan tetapan.");
+      setMessage(t("settingsFailed", lang));
     }
   };
 
-  if (loading) return <div className="p-8 text-center">Memuat...</div>;
-  if (!config) return <div className="p-8 text-center text-red-600">Tiada tetapan dijumpai</div>;
+  if (loading) return <div className="p-8 text-center">{t("loading", lang)}</div>;
+  if (!config) return <div className="p-8 text-center text-red-600">{t("noConfig", lang)}</div>;
 
   return (
     <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Tetapan Sistem</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">{t("systemSettings", lang)}</h1>
 
       {message && (
-        <div className={`mb-4 p-3 rounded ${message.includes("Gagal") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+        <div className={`mb-4 p-3 rounded ${message.includes(t("settingsFailed", lang).slice(0, 5)) ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
           {message}
         </div>
       )}
@@ -68,7 +73,7 @@ export default function SettingsPage() {
       <form onSubmit={handleSubmit} className="space-y-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Hari Tangguh Penalti</label>
+            <label className="block text-sm font-medium mb-1">{t("penaltyDays", lang)}</label>
             <input
               type="number"
               min="0"
@@ -77,10 +82,10 @@ export default function SettingsPage() {
               onChange={(e) => setConfig({ ...config, penaltyDays: Number(e.target.value) })}
               className="w-full px-3 py-2 border rounded-lg"
             />
-            <p className="text-xs text-gray-500 mt-1">Hari selepas tarikh akhir sebelum penalti dikenakan</p>
+            <p className="text-xs text-gray-500 mt-1">{t("penaltyDaysHelp", lang)}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Peratusan Penalti (%)</label>
+            <label className="block text-sm font-medium mb-1">{t("penaltyPercent", lang)}</label>
             <input
               type="number"
               min="0"
@@ -95,7 +100,7 @@ export default function SettingsPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Hari Retry</label>
+            <label className="block text-sm font-medium mb-1">{t("retryDays", lang)}</label>
             <input
               type="number"
               min="0"
@@ -104,10 +109,10 @@ export default function SettingsPage() {
               onChange={(e) => setConfig({ ...config, retryDays: Number(e.target.value) })}
               className="w-full px-3 py-2 border rounded-lg"
             />
-            <p className="text-xs text-gray-500 mt-1">Bilangan hari untuk cuba semula pembayaran automatik</p>
+            <p className="text-xs text-gray-500 mt-1">{t("retryDaysHelp", lang)}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Cubaan Retry Sehari</label>
+            <label className="block text-sm font-medium mb-1">{t("retryAttemptsPerDay", lang)}</label>
             <input
               type="number"
               min="0"
@@ -119,18 +124,33 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Peratusan Yuran Gateway (%)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            value={config.gatewayFeePercent}
-            onChange={(e) => setConfig({ ...config, gatewayFeePercent: Number(e.target.value) })}
-            className="w-full px-3 py-2 border rounded-lg"
-          />
-          <p className="text-xs text-gray-500 mt-1">Yuran tambahan yang dikenakan ke atas bil (0 = tiada yuran)</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">{t("gatewayFeePercent", lang)}</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              required
+              value={config.gatewayFeePercent}
+              onChange={(e) => setConfig({ ...config, gatewayFeePercent: Number(e.target.value) })}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">{t("gatewayFeeHelp", lang)}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">{t("gatewayFeeFixed", lang)}</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              required
+              value={config.gatewayFeeFixed}
+              onChange={(e) => setConfig({ ...config, gatewayFeeFixed: Number(e.target.value) })}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">{t("gatewayFeeFixedHelp", lang)}</p>
+          </div>
         </div>
 
         <div className="flex justify-end pt-4">
@@ -139,7 +159,7 @@ export default function SettingsPage() {
             disabled={saving}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? "Menyimpan..." : "Simpan Tetapan"}
+            {saving ? t("loading", lang) : t("saveSettings", lang)}
           </button>
         </div>
       </form>

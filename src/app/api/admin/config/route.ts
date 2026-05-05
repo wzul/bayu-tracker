@@ -10,6 +10,7 @@ const configSchema = z.object({
   retryDays: z.number().min(0),
   retryAttemptsPerDay: z.number().min(0),
   gatewayFeePercent: z.number().min(0),
+  gatewayFeeFixed: z.number().min(0),
 });
 
 export async function GET() {
