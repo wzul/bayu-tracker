@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fmtMYT } from "@/lib/date";
 
 interface Bill {
   id: string;
@@ -96,11 +97,11 @@ export default function UnitDetailPage({ params }: { params: { id: string } }) {
                 <tr key={b.id} className="hover:bg-gray-50">
                   <td className="py-3 text-sm font-medium">{b.monthYear}</td>
                   <td className="py-3 text-sm text-right text-gray-700">RM {Number(b.totalAmount).toFixed(2)}</td>
-                  <td className="py-3 text-sm text-gray-500 px-4">{new Date(b.dueDate).toLocaleDateString("ms-MY")}</td>
+                  <td className="py-3 text-sm text-gray-500 px-4">{fmtMYT(b.dueDate)}</td>
                   <td className="py-3">
                     <span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{b.status}</span>
                   </td>
-                  <td className="py-3 text-sm text-gray-500">{b.paidAt ? new Date(b.paidAt).toLocaleDateString("ms-MY") : "-"}</td>
+                  <td className="py-3 text-sm text-gray-500">{fmtMYT(b.paidAt)}</td>
                 </tr>
               ))}
             </tbody>

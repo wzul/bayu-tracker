@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { fmtMYT } from "@/lib/date";
 
 interface Bill {
   id: string;
@@ -105,7 +106,7 @@ export default function BillsPage() {
                 <td className="px-4 py-3"><div className="text-sm font-medium">{b.unit.block}-{b.unit.floor}-{b.unit.unitNo}</div><div className="text-xs text-gray-500">{b.unit.ownerName}</div></td>
                 <td className="px-4 py-3 text-sm">{b.monthYear}</td>
                 <td className="px-4 py-3 text-sm text-right font-medium">RM {Number(b.totalAmount).toFixed(2)}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">{new Date(b.dueDate).toLocaleDateString("ms-MY")}</td>
+                <td className="px-4 py-3 text-sm text-gray-500">{fmtMYT(b.dueDate)}</td>
                 <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full ${statusColor(b.status)}`}>{b.status}</span></td>
                 <td className="px-4 py-3 text-right space-x-2">
                   {b.status === "PENDING" && <button onClick={() => handleMarkPaid(b.id)} className="text-green-600 hover:underline text-sm">Tandai Lunas</button>}
