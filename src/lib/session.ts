@@ -1,11 +1,23 @@
-import { randomUUID } from "crypto";
 import { db } from "./db";
 
 export const SESSION_DURATION = 2 * 60 * 60 * 1000; // 2 hours
 export const LONG_SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+function generateToken() {
+  const bytes = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    // Fallback for older Node
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function createSession(userId: string, rememberMe = false) {
-  const token = randomUUID();
+  const token = generateToken();
   const expiresAt = new Date(Date.now() + (rememberMe ? LONG_SESSION_DURATION : SESSION_DURATION));
 
   await db.session.create({
