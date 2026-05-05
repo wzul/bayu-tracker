@@ -51,8 +51,6 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
-    ports:
-      - "3000"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.rule=Host(`chip-bayu-maintenance-oghqao-424c76-62-146-232-67.traefik.me`) || Host(`bayu.wanzul-hosting.com`)"
