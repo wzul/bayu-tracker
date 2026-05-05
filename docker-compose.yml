@@ -38,13 +38,12 @@ services:
       - condo-network
 
   rustfs:
-    image: rustfs/rustfs:latest
+    image: minio/minio:latest
     restart: unless-stopped
     environment:
-      RUSTFS_ROOT_USER: ${RUSTFS_ACCESS_KEY:-rustfs}
-      RUSTFS_ROOT_PASSWORD: ${RUSTFS_SECRET_KEY:-rustfspass}
-      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
-      RUSTFS_DATA_DIR: /data
+      MINIO_ROOT_USER: ${RUSTFS_ACCESS_KEY:-rustfs}
+      MINIO_ROOT_PASSWORD: ${RUSTFS_SECRET_KEY:-rustfspass}
+      MINIO_REGION: ${RUSTFS_REGION:-us-east-1}
     volumes:
       - rustfs_data:/data
     ports:
