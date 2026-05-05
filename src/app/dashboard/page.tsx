@@ -39,7 +39,6 @@ export default function ResidentDashboard() {
   const { lang } = useLanguage();
 
   const fetchBills = useCallback(async () => {
-    setLoading(true);
     const params = new URLSearchParams();
     if (filterStatus) params.set("status", filterStatus);
     if (filterMonth) params.set("monthYear", filterMonth);
@@ -49,7 +48,6 @@ export default function ResidentDashboard() {
     setBills(data.bills || []);
     setGatewayFeeFixed(Number(data.gatewayFeeFixed ?? 0));
     setGatewayFeePercent(Number(data.gatewayFeePercent ?? 0));
-    setLoading(false);
     setSelected(new Set());
   }, [filterStatus, filterMonth, filterUuid]);
 
@@ -58,12 +56,16 @@ export default function ResidentDashboard() {
       .then(r => r.json())
       .then(data => {
         if (data.unit) setUnit(data.unit);
-        return fetchBills();
       });
   }, []);
 
+  // Debounced auto-search: 300ms after user stops typing
   useEffect(() => {
-    fetchBills();
+    const timer = setTimeout(() => {
+      fetchBills();
+      setLoading(false);
+    }, 300);
+    return () => clearTimeout(timer);
   }, [fetchBills]);
 
   const pendingBills = bills.filter(b => b.status === "PENDING" || b.status === "OVERDUE");
@@ -243,7 +245,7 @@ export default function ResidentDashboard() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {(b.status === "PENDING" || b.status === "OVERDUE") && (
-                    <PayButton billId={b.id} amount={b.totalAmount} />
+                    <PayButton billId={b.id} />
                   )}
                 </td>
               </tr>
@@ -255,7 +257,7 @@ export default function ResidentDashboard() {
   );
 }
 
-function PayButton({ billId, amount }: { billId: string; amount: number }) {
+function PayButton({ billId }: { billId: string }) {
   const [loading, setLoading] = useState(false);
   const { lang } = useLanguage();
 

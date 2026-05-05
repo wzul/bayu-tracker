@@ -28,7 +28,6 @@ export default function BillsPage() {
   const { lang } = useLanguage();
 
   const fetchBills = useCallback(async () => {
-    setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
       limit: "20",
@@ -42,10 +41,19 @@ export default function BillsPage() {
       setBills(data.bills);
       setTotalPages(data.totalPages);
     }
-    setLoading(false);
   }, [page, status, monthYear, uuidQuery]);
 
-  useEffect(() => { fetchBills(); }, [fetchBills]);
+  // Initial load only
+  useEffect(() => {
+    fetchBills().then(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced auto-search on filter changes
+  useEffect(() => {
+    const timer = setTimeout(() => fetchBills(), 300);
+    return () => clearTimeout(timer);
+  }, [fetchBills]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Padam bil ini?")) return;
@@ -97,7 +105,7 @@ export default function BillsPage() {
           <option value="OVERDUE">Lewat</option>
         </select>
         <input type="month" value={monthYear} onChange={(e) => { setMonthYear(e.target.value); setPage(1); }} className="px-3 py-2 border rounded-lg" placeholder="YYYY-MM" />
-        <button onClick={() => { setPage(1); fetchBills(); }} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Cari</button>
+        <button onClick={() => { setPage(1); setStatus(""); setMonthYear(""); setUuidQuery(""); }} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Reset</button>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
