@@ -51,6 +51,11 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`chip-bayu-maintenance-oghqao-424c76-62-146-232-67.traefik.me`) || Host(`bayu.wanzul-hosting.com`)"
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
+      - "traefik.http.routers.app.tls=true"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-condo_db}?schema=public
       REDIS_URL: redis://valkey:6379
