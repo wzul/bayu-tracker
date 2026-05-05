@@ -1,7 +1,6 @@
 # Stage 1: Base
 FROM node:22-alpine AS base
 RUN apk add --no-cache openssl libc6-compat
-RUN npm install -g npm@11.13.0
 WORKDIR /app
 
 # Stage 2: Dependencies
@@ -29,7 +28,6 @@ RUN npm run build
 # Stage 4: Runner
 FROM node:22-alpine AS runner
 RUN apk add --no-cache openssl postgresql-client
-RUN npm install -g npm@11.13.0
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
