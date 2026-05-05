@@ -100,7 +100,7 @@ export default function CreateBillPage() {
             <option value="">Pilih unit...</option>
             {units.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.block}-{u.floor}-{u.unitNo} — {u.ownerName} (RM {u.monthlyFee.toFixed(2)})
+                {u.block}-{u.floor}-{u.unitNo} — {u.ownerName} (RM {Number(u.monthlyFee).toFixed(2)})
               </option>
             ))}
           </select>
