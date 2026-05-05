@@ -7,14 +7,13 @@ import { PrismaClient } from "@prisma/client";
 const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build' || !process.env.DATABASE_URL;
 
 function createNoOpPrisma(): PrismaClient {
-  return new Proxy({} as any, {
-    get(_target, prop) {
-      if (prop === '$connect' || prop === '$disconnect') {
-        return async () => {};
-      }
-      return () => Promise.resolve(null);
-    },
-  }) as unknown as PrismaClient;
+  const handler = (_target: Record<string, unknown>, prop: string | symbol) => {
+    if (prop === '$connect' || prop === '$disconnect') {
+      return async () => {};
+    }
+    return () => Promise.resolve(null);
+  };
+  return new Proxy({}, { get: handler }) as unknown as PrismaClient;
 }
 
 const globalForPrisma = global as unknown as { db?: PrismaClient };
