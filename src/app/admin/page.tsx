@@ -40,7 +40,7 @@ export default function AdminDashboard() {
     { label: t("paidBills", lang), value: stats.paidBills, color: "bg-green-500", href: "/admin/bills" },
     { label: t("overdueBills", lang), value: stats.overdueBills, color: "bg-red-500", href: "/admin/bills" },
     { label: t("totalUsers", lang), value: stats.totalUsers, color: "bg-purple-500", href: "#" },
-    { label: t("collection", lang), value: `RM ${stats.totalCollected.toFixed(2)}`, color: "bg-emerald-500", href: "/admin/payments" },
+    { label: t("collection", lang), value: "RM " + stats.totalCollected.toFixed(2), color: "bg-emerald-500", href: "/admin/payments" },
   ];
 
   return (
@@ -65,8 +65,8 @@ export default function AdminDashboard() {
                   <p className="text-xs text-green-600 mt-1">{stat.active} {t("activeUnits", lang)}</p>
                 )}
               </div>
-              <div className={`w-12 h-12 rounded-lg ${stat.color} bg-opacity-20 flex items-center justify-center`>
-                <div className={`w-4 h-4 rounded-full ${stat.color}`}></div>
+              <div className={stat.color + " bg-opacity-20 flex items-center justify-center w-12 h-12 rounded-lg"}>
+                <div className={stat.color + " w-4 h-4 rounded-full"}></div>
               </div>
             </div>
           </Link>
