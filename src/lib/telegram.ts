@@ -76,10 +76,90 @@ async function cmdUnit(query: string, chatId: number) {
   await tgSend(chatId, text);
 }
 
+// ADMIN: Config view
+async function cmdConfig(chatId: number) {
+  const config = await db.config.findFirst();
+  if (!config) { await tgSend(chatId, "❌ Tiada tetapan dijumpai."); return; }
+  const text = "<b>Tetapan Sistem</b>\n\n" +
+    "• Hari Tangguh Penalti: " + config.penaltyDays + "\n" +
+    "• Peratusan Penalti: " + Number(config.penaltyPercent).toFixed(2) + "%\n" +
+    "• Hari Retry: " + config.retryDays + "\n" +
+    "• Cubaan Retry Sehari: " + config.retryAttemptsPerDay + "\n" +
+    "• Yuran Gateway: " + Number(config.gatewayFeePercent).toFixed(2) + "%";
+  await tgSend(chatId, text);
+}
+
+// ADMIN: Config update helpers
+async function cmdSetConfig(field: string, value: number, chatId: number) {
+  const config = await db.config.findFirst();
+  if (!config) { await tgSend(chatId, "❌ Tiada tetapan dijumpai."); return; }
+
+  const validFields = ["penaltyDays", "penaltyPercent", "retryDays", "retryAttemptsPerDay", "gatewayFeePercent"];
+  if (!validFields.includes(field)) {
+    await tgSend(chatId, "❌ Medan tidak sah."); return;
+  }
+
+  await db.config.update({ where: { id: config.id }, data: { [field]: value } });
+  await tgSend(chatId, "✅ Tetapan <b>" + field + "</b> dikemaskini kepada <b>" + value + "</b>.");
+}
+
+// ADMIN: List Telegram admins
+async function cmdListAdmins(chatId: number) {
+  const admins = await db.telegramAdmin.findMany({ orderBy: { createdAt: "desc" } });
+  if (admins.length === 0) { await tgSend(chatId, "Tiada admin Telegram didaftarkan."); return; }
+  let text = "<b>Senarai Admin Telegram</b>\n\n";
+  admins.forEach((a) => {
+    text += "• " + a.name + " (" + a.telegramId + ") — " + (a.isActive ? "Aktif" : "Tidak Aktif") + "\n";
+  });
+  await tgSend(chatId, text);
+}
+
+// ADMIN: Add Telegram admin
+async function cmdAddAdmin(args: string[], chatId: number) {
+  if (args.length < 2) { await tgSend(chatId, "❌ Guna: /addadmin <telegramId> <nama>"); return; }
+  const telegramId = args[0];
+  const name = args.slice(1).join(" ");
+
+  await db.telegramAdmin.upsert({
+    where: { telegramId },
+    create: { telegramId, name, isActive: true },
+    update: { name, isActive: true },
+  });
+
+  await tgSend(chatId, "✅ Admin <b>" + name + "</b> (" + telegramId + ") ditambah.");
+}
+
+// ADMIN: Remove Telegram admin
+async function cmdRemoveAdmin(telegramId: string, chatId: number) {
+  if (!telegramId) { await tgSend(chatId, "❌ Guna: /removeadmin <telegramId>"); return; }
+
+  await db.telegramAdmin.updateMany({
+    where: { telegramId },
+    data: { isActive: false },
+  });
+
+  await tgSend(chatId, "✅ Admin " + telegramId + " ditamatkan.");
+}
+
 // HELP
 async function cmdHelp(chatId: number, admin: boolean) {
   let text = "<b>Bot Bayu Condo</b>\n\n<b>Penduduk:</b>\n/cek <email/telefon> — Semak bil anda\n\n";
-  if (admin) { text += "<b>Admin:</b>\n/summary — Ringkasan kutipan\n/bills <bulan> — Bil mengikut bulan\n/unit <unit> — Detail unit (A-1-01)\n/overdue — Senarai bil lewat\n"; }
+  if (admin) {
+    text += "<b>Admin:</b>\n" +
+      "/summary — Ringkasan kutipan\n" +
+      "/bills <bulan> — Bil mengikut bulan\n" +
+      "/unit <unit> — Detail unit (A-1-01)\n" +
+      "/overdue — Senarai bil lewat\n" +
+      "/config — Tetapan sistem\n" +
+      "/setpenaltydays <hari>\n" +
+      "/setpenaltypercent <%>\n" +
+      "/setretrydays <hari>\n" +
+      "/setretryattempts <bilangan>\n" +
+      "/setgatewayfee <%>\n" +
+      "/listadmins — Senarai admin\n" +
+      "/addadmin <id> <nama>\n" +
+      "/removeadmin <id>\n";
+  }
   await tgSend(chatId, text);
 }
 
@@ -98,7 +178,24 @@ export async function handleTelegramUpdate(update: any) {
       case "/bills": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdBills(parts[1] || (new Date().getFullYear() + "-" + String(new Date().getMonth()+1).padStart(2, "0")), chatId); break;
       case "/unit": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); if (!parts[1]) await tgSend(chatId, "❌ Guna: /unit A-1-01"); else await cmdUnit(parts[1], chatId); break;
       case "/overdue": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdOverdue(chatId); break;
+      case "/config": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdConfig(chatId); break;
+      case "/setpenaltydays": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("penaltyDays", Number(parts[1]), chatId); break;
+      case "/setpenaltypercent": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("penaltyPercent", Number(parts[1]), chatId); break;
+      case "/setretrydays": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("retryDays", Number(parts[1]), chatId); break;
+      case "/setretryattempts": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("retryAttemptsPerDay", Number(parts[1]), chatId); break;
+      case "/setgatewayfee": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdSetConfig("gatewayFeePercent", Number(parts[1]), chatId); break;
+      case "/listadmins": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdListAdmins(chatId); break;
+      case "/addadmin": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdAddAdmin(parts.slice(1), chatId); break;
+      case "/removeadmin": if (!admin) return await tgSend(chatId, "❌ Akses ditolak."); await cmdRemoveAdmin(parts[1], chatId); break;
       default: break;
     }
   } catch (err) { console.error("Telegram command error:", err); await tgSend(chatId, "❌ Ralat sistem. Sila cuba sebentar lagi."); }
+}
+
+// Proactive notification helpers
+export async function notifyAdmins(text: string) {
+  const admins = (process.env.TELEGRAM_ADMIN_IDS || "").split(",").map((s) => parseInt(s.trim())).filter(Boolean);
+  for (const id of admins) {
+    await tgSend(id, text);
+  }
 }

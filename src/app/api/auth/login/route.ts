@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/session";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -12,6 +13,15 @@ const loginSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIP(request);
+    const limit = await rateLimit(ip, "login");
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((limit.resetAt - Date.now()) / 1000)) } }
+      );
+    }
+
     const body = await request.json();
     const { email, password, rememberMe } = loginSchema.parse(body);
 
