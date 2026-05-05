@@ -282,4 +282,4 @@ This project uses **custom cookie-based session auth** (not NextAuth):
 
 ## License
 
-Private — for internal use by Bayu Condo management.
+This project is licensed under the [GNU General Public License v3.0](LICENSE) (GPLv3).
