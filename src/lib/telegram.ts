@@ -818,7 +818,8 @@ async function cmdCek(phoneOrEmail: string, chatId: number) {
     text += "✅ Tiada bil tertunggak!\n";
   }
 
-  text += `\n📜 Bil Lunas: ${paid.length}`;
+  const totalPaid = paid.reduce((s, b) => s + Number(b.totalAmount), 0);
+  text += `\n📜 Bil Lunas: ${paid.length} (Jumlah: RM ${totalPaid.toFixed(2)})`;
 
   await tgSend(chatId, text, {
     reply_markup: {
@@ -846,6 +847,8 @@ async function cmdHistory(chatId: number, session: UserSession) {
     return;
   }
 
+  const totalPaid = bills.reduce((s, b) => s + Number(b.totalAmount), 0);
+
   let text = "📜 <b>Sejarah Pembayaran</b>\n\n";
   bills.forEach((b) => {
     const date = b.paidAt
@@ -853,6 +856,7 @@ async function cmdHistory(chatId: number, session: UserSession) {
       : "-";
     text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)} — ${date}\n`;
   });
+  text += `\n💰 <b>Jumlah Dibayar: RM ${totalPaid.toFixed(2)}</b>`;
 
   await tgSend(chatId, text, { reply_markup: backButton("menu") });
 }
