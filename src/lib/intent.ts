@@ -27,6 +27,8 @@ function buildSystemPrompt(ctx: ClassifyContext): string {
     { cmd: "config", desc: "Admin-only. View system settings.", admin: true },
     { cmd: "pay", desc: "Show payment menu for pending bills. Resident only.", admin: false },
     { cmd: "history", desc: "Show payment history. Resident only.", admin: false },
+    { cmd: "stats", desc: "Show payment statistics (total paid this year, pending, yearly breakdown). Resident only.", admin: false },
+    { cmd: "contact", desc: "Show management contact information.", admin: false },
     { cmd: "help", desc: "Show help text with available commands.", admin: false },
     { cmd: "menu", desc: "Show main menu.", admin: false },
     { cmd: "login", desc: "Start login flow.", admin: false },

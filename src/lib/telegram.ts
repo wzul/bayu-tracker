@@ -93,11 +93,6 @@ function isAdmin(chatId: number): boolean {
 function requireAuth(chatId: number): UserSession | null {
   const session = userSessions.get(chatId);
   if (!session) return null;
-  // Auto-logout after 24 hours
-  if (Date.now() - session.authenticatedAt.getTime() > 24 * 60 * 60 * 1000) {
-    userSessions.delete(chatId);
-    return null;
-  }
   return session;
 }
 
@@ -107,6 +102,7 @@ function residentMenuKeyboard() {
     inline_keyboard: [
       [{ text: "📋 Semak Bil", callback_data: "cek" }],
       [{ text: "💰 Bayar Bil", callback_data: "pay_menu" }],
+      [{ text: "📊 Statistik", callback_data: "stats" }],
       [{ text: "📜 Sejarah Bayaran", callback_data: "history" }],
       [{ text: "❓ Bantuan", callback_data: "help" }],
     ],
@@ -282,6 +278,12 @@ async function handleCallbackQuery(cb: any) {
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
+  if (data === "stats") {
+    const session = requireAuth(chatId);
+    if (session) await cmdStats(chatId, session);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
   if (data === "summary") {
     if (!isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
@@ -453,6 +455,19 @@ async function handleMessage(msg: any) {
             return;
           }
           break;
+        case "stats":
+          if (session) {
+            await cmdStats(chatId, session);
+            return;
+          }
+          break;
+        case "contact":
+          await cmdContact(chatId);
+          return;
+        case "logout":
+          userSessions.delete(chatId);
+          await tgSend(chatId, "👋 Anda telah log keluar.");
+          return;
         case "help":
           await cmdHelp(chatId, isAdmin(chatId));
           return;
@@ -484,6 +499,26 @@ async function handleMessage(msg: any) {
     case "/login":
       await startOtpFlow(chatId);
       return;
+    case "/logout": {
+      userSessions.delete(chatId);
+      await tgSend(chatId, "👋 Anda telah log keluar.");
+      return;
+    }
+    case "/stats": {
+      const session = requireAuth(chatId);
+      if (!session) {
+        await tgSend(chatId, "🔒 Sila log masuk terlebih dahulu.", {
+          reply_markup: { inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]] },
+        });
+        return;
+      }
+      await cmdStats(chatId, session);
+      return;
+    }
+    case "/contact": {
+      await cmdContact(chatId);
+      return;
+    }
     case "/cek": {
       const session = requireAuth(chatId);
       if (!session) {
@@ -861,6 +896,51 @@ async function cmdHistory(chatId: number, session: UserSession) {
   await tgSend(chatId, text, { reply_markup: backButton("menu") });
 }
 
+async function cmdStats(chatId: number, session: UserSession) {
+  if (!session.unitId) {
+    await tgSend(chatId, "❌ Tiada unit dihubungkan.");
+    return;
+  }
+
+  const allBills = await db.bill.findMany({
+    where: { unitId: session.unitId },
+  });
+
+  const currentYear = new Date().getFullYear();
+  const paidThisYear = allBills.filter((b) => b.status === "PAID" && b.monthYear.startsWith(String(currentYear)));
+  const pending = allBills.filter((b) => b.status === "PENDING" || b.status === "OVERDUE");
+  const totalPaidThisYear = paidThisYear.reduce((s, b) => s + Number(b.totalAmount), 0);
+  const totalPending = pending.reduce((s, b) => s + Number(b.totalAmount), 0);
+
+  const yearly: Record<string, { paid: number; count: number }> = {};
+  allBills.filter((b) => b.status === "PAID").forEach((b) => {
+    const year = b.monthYear.split("-")[0];
+    if (!yearly[year]) yearly[year] = { paid: 0, count: 0 };
+    yearly[year].paid += Number(b.totalAmount);
+    yearly[year].count += 1;
+  });
+
+  let text = `📊 <b>Statistik Pembayaran</b>\n\n`;
+  text += `💰 <b>Jumlah Dibayar (${currentYear}):</b> RM ${totalPaidThisYear.toFixed(2)}\n`;
+  text += `⚠️ <b>Jumlah Tertunggak:</b> RM ${totalPending.toFixed(2)}\n`;
+  text += `📜 Bil Lunas: ${allBills.filter((b) => b.status === "PAID").length}\n`;
+  text += `🟡 Bil Tertunggak: ${pending.length}\n\n`;
+
+  const years = Object.keys(yearly).sort().reverse();
+  if (years.length > 0) {
+    text += `<b>Rumusan Tahunan:</b>\n`;
+    years.forEach((y) => {
+      text += `• ${y}: RM ${yearly[y].paid.toFixed(2)} (${yearly[y].count} bil)\n`;
+    });
+  }
+
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
+}
+
+async function cmdContact(chatId: number) {
+  await tgSend(chatId, "📞 <b>Hubungi Pentadbiran Bayu Condo</b>\n\nSila hubungi pihak pengurusan melalui emel atau telefon yang telah disediakan di portal web.", { reply_markup: backButton("menu") });
+}
+
 async function cmdPayBill(chatId: number, billId: string, session: UserSession) {
   if (!session.unitId) {
     await tgSend(chatId, "❌ Tiada unit dihubungkan.");
@@ -1173,6 +1253,10 @@ async function cmdHelp(chatId: number, admin: boolean) {
   text += "<b>Penduduk:</b>\n";
   text += "• /login — Log masuk dengan emel + pilihan planet\n";
   text += "• /cek — Semak bil tertunggak\n";
+  text += "• /stats — Statistik pembayaran\n";
+  text += "• /history — Sejarah pembayaran\n";
+  text += "• /contact — Hubungi pentadbiran\n";
+  text += "• /logout — Log keluar\n";
   text += "• /menu — Papar menu utama\n\n";
 
   if (admin) {
