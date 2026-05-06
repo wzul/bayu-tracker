@@ -26,9 +26,11 @@ const userSessions = new Map<number, UserSession>();
 
 // Multi-step flow state (e.g. awaiting unit search input)
 interface ChatState {
-  mode: "awaiting_unit_query" | "awaiting_config_value";
+  mode: "awaiting_unit_query" | "awaiting_config_value" | "awaiting_createbill" | "awaiting_createunit";
   field?: string;
   messageId?: number;
+  step?: number;
+  data?: Record<string, any>;
 }
 const chatState = new Map<number, ChatState>();
 
@@ -114,14 +116,18 @@ function adminMenuKeyboard() {
     inline_keyboard: [
       [
         { text: "📊 Ringkasan", callback_data: "summary" },
-        { text: "🏠 Cari Unit", callback_data: "unit_search" },
+        { text: "💳 Pembayaran", callback_data: "payments_menu" },
       ],
       [
+        { text: "🏠 Cari Unit", callback_data: "unit_search" },
         { text: "🧾 Bil Bulanan", callback_data: "bills_menu" },
-        { text: "⚙️ Tetapan", callback_data: "config" },
       ],
       [
         { text: "📈 Laporan", callback_data: "reports_menu" },
+        { text: "📋 Audit", callback_data: "audit_menu" },
+      ],
+      [
+        { text: "⚙️ Tetapan", callback_data: "config" },
         { text: "👥 Admin Telegram", callback_data: "admin_menu" },
       ],
       [
@@ -325,6 +331,22 @@ async function handleCallbackQuery(cb: any) {
     await showReportsMenu(chatId);
     return;
   }
+  if (data === "payments_menu") {
+    if (!isAdmin(chatId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdPayments(chatId, "", 1);
+    return;
+  }
+  if (data === "audit_menu") {
+    if (!isAdmin(chatId)) {
+      await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
+      return;
+    }
+    await cmdAudit(chatId, 1);
+    return;
+  }
   if (data === "admin_menu") {
     if (!isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
@@ -372,6 +394,24 @@ async function handleCallbackQuery(cb: any) {
     await cmdBillsPaged(chatId, month, page);
     return;
   }
+  if (data.startsWith("payments_page_")) {
+    if (!isAdmin(chatId)) {
+      await tgSend(chatId, "❌ Akses ditolak.");
+      return;
+    }
+    const page = parseInt(data.replace("payments_page_", ""), 10);
+    await cmdPayments(chatId, "", page);
+    return;
+  }
+  if (data.startsWith("audit_page_")) {
+    if (!isAdmin(chatId)) {
+      await tgSend(chatId, "❌ Akses ditolak.");
+      return;
+    }
+    const page = parseInt(data.replace("audit_page_", ""), 10);
+    await cmdAudit(chatId, page);
+    return;
+  }
 
   // Default
   await tgSend(chatId, "👋 Pilihan tidak sah.", { reply_markup: backButton("menu") });
@@ -385,13 +425,18 @@ async function handleMessage(msg: any) {
   // Multi-step flow handling
   const state = chatState.get(chatId);
   if (state) {
-    chatState.delete(chatId);
     if (state.mode === "awaiting_unit_query" && isAdmin(chatId)) {
+      chatState.delete(chatId);
       await cmdUnit(text, chatId);
       return;
     }
     if (state.mode === "awaiting_config_value" && isAdmin(chatId) && state.field) {
+      chatState.delete(chatId);
       await cmdSetConfig(state.field, Number(text), chatId);
+      return;
+    }
+    if (state.mode === "awaiting_createunit" && isAdmin(chatId)) {
+      await handleCreateUnitStep(chatId, text, state);
       return;
     }
   }
@@ -440,6 +485,52 @@ async function handleMessage(msg: any) {
               intent.target ||
               new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
             await cmdBillsPaged(chatId, month, 1);
+            return;
+          }
+          break;
+        case "payments":
+          if (isAdmin(chatId)) {
+            await cmdPayments(chatId, intent.target || "", 1);
+            return;
+          }
+          break;
+        case "reports":
+          if (isAdmin(chatId)) {
+            const month =
+              intent.target ||
+              new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+            await cmdReports(chatId, month);
+            return;
+          }
+          break;
+        case "audit":
+          if (isAdmin(chatId)) {
+            await cmdAudit(chatId, 1);
+            return;
+          }
+          break;
+        case "deletebill":
+          if (isAdmin(chatId) && intent.target) {
+            await cmdDeleteBill(intent.target, chatId);
+            return;
+          }
+          break;
+        case "markpaid":
+          if (isAdmin(chatId) && intent.target) {
+            await cmdMarkPaid(intent.target, chatId);
+            return;
+          }
+          break;
+        case "createunit":
+          if (isAdmin(chatId)) {
+            chatState.set(chatId, { mode: "awaiting_createunit", step: 0, data: {} });
+            await tgSend(chatId, "🏠 <b>Cipta Unit Baharu</b>\n\nLangkah 1/7: Sila masukkan <b>Blok</b> (cth: A):");
+            return;
+          }
+          break;
+        case "deleteunit":
+          if (isAdmin(chatId) && intent.target) {
+            await cmdDeleteUnit(intent.target, chatId);
             return;
           }
           break;
@@ -610,6 +701,77 @@ async function handleMessage(msg: any) {
         return;
       }
       await cmdRemoveAdmin(parts[1], chatId);
+      return;
+    }
+    case "/payments": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      const month = parts[1] || "";
+      await cmdPayments(chatId, month, 1);
+      return;
+    }
+    case "/reports": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      const month = parts[1] || new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+      await cmdReports(chatId, month);
+      return;
+    }
+    case "/audit": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      await cmdAudit(chatId, 1);
+      return;
+    }
+    case "/deletebill": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (!parts[1]) {
+        await tgSend(chatId, "❌ Guna: /deletebill <id-atau-uuid>");
+        return;
+      }
+      await cmdDeleteBill(parts[1], chatId);
+      return;
+    }
+    case "/markpaid": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (!parts[1]) {
+        await tgSend(chatId, "❌ Guna: /markpaid <id-atau-uuid>");
+        return;
+      }
+      await cmdMarkPaid(parts[1], chatId);
+      return;
+    }
+    case "/createunit": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      chatState.set(chatId, { mode: "awaiting_createunit", step: 0, data: {} });
+      await tgSend(chatId, "🏠 <b>Cipta Unit Baharu</b>\n\nLangkah 1/7: Sila masukkan <b>Blok</b> (cth: A):");
+      return;
+    }
+    case "/deleteunit": {
+      if (!isAdmin(chatId)) {
+        await tgSend(chatId, "❌ Akses ditolak.");
+        return;
+      }
+      if (!parts[1]) {
+        await tgSend(chatId, "❌ Guna: /deleteunit <unit-atau-nama>");
+        return;
+      }
+      await cmdDeleteUnit(parts[1], chatId);
       return;
     }
   }
@@ -1246,6 +1408,265 @@ async function cmdRemoveAdmin(telegramId: string, chatId: number) {
   await tgSend(chatId, `✅ Admin ${telegramId} ditamatkan.`);
 }
 
+// ── DELETE UNIT ──────────────────────────────────────────────────────
+async function cmdDeleteUnit(query: string, chatId: number) {
+  const unit = await db.unit.findFirst({
+    where: {
+      OR: [
+        { ownerName: { contains: query, mode: "insensitive" } },
+        { ownerIc: query },
+        { unitNo: query },
+      ],
+    },
+  });
+
+  if (!unit) {
+    await tgSend(chatId, "❌ Unit tidak dijumpai.");
+    return;
+  }
+
+  await db.unit.delete({ where: { id: unit.id } });
+  await tgSend(chatId, `🗑️ Unit ${unit.block}-${unit.floor}-${unit.unitNo} (${unit.ownerName}) telah dipadam.`);
+}
+
+// ── PAYMENTS ─────────────────────────────────────────────────────────
+async function cmdPayments(chatId: number, monthYear: string, page: number) {
+  const limit = 10;
+  const where: any = { status: "PAID" };
+  if (monthYear) where.monthYear = monthYear;
+
+  const skip = (page - 1) * limit;
+  const [payments, total, summary] = await Promise.all([
+    db.bill.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { paidAt: "desc" },
+      select: {
+        uuid: true,
+        monthYear: true,
+        totalAmount: true,
+        paidAt: true,
+        paymentMethod: true,
+        unit: { select: { block: true, floor: true, unitNo: true, ownerName: true } },
+      },
+    }),
+    db.bill.count({ where }),
+    db.bill.aggregate({ where, _sum: { totalAmount: true }, _count: { id: true } }),
+  ]);
+
+  let text = `💳 <b>Pembayaran</b>${monthYear ? ` — ${monthYear}` : ""}\n`;
+  text += `💰 Jumlah: ${summary._count.id} bil (RM ${Number(summary._sum.totalAmount || 0).toFixed(2)})\n\n`;
+
+  payments.forEach((p: any) => {
+    const date = p.paidAt
+      ? new Date(p.paidAt).toLocaleDateString("ms-MY", { timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short", year: "numeric" })
+      : "-";
+    text += `• ${p.uuid.slice(0, 7)} — ${p.unit.block}-${p.unit.floor}-${p.unit.unitNo} — RM ${Number(p.totalAmount).toFixed(2)} — ${p.paymentMethod || "?"} — ${date}\n`;
+  });
+
+  if (payments.length === 0) text += "Tiada rekod.";
+
+  const totalPages = Math.ceil(total / limit);
+  await tgSend(chatId, text, totalPages > 1 ? { reply_markup: paginationKeyboard(page, totalPages, "payments") } : { reply_markup: backButton("menu") });
+}
+
+// ── REPORTS ──────────────────────────────────────────────────────────
+async function cmdReports(chatId: number, monthYear: string) {
+  const [totalExpectedAgg, totalCollectedAgg, pendingAgg, paidAgg, overdueAgg] = await Promise.all([
+    db.bill.aggregate({ where: { monthYear }, _sum: { totalAmount: true } }),
+    db.bill.aggregate({ where: { monthYear, status: "PAID" }, _sum: { totalAmount: true } }),
+    db.bill.count({ where: { monthYear, status: "PENDING" } }),
+    db.bill.count({ where: { monthYear, status: "PAID" } }),
+    db.bill.count({ where: { monthYear, status: "OVERDUE" } }),
+  ]);
+
+  const totalExpected = Number(totalExpectedAgg._sum.totalAmount || 0);
+  const totalCollected = Number(totalCollectedAgg._sum.totalAmount || 0);
+  const collectionRate = totalExpected > 0 ? ((totalCollected / totalExpected) * 100).toFixed(2) : "0.00";
+
+  const bills = await db.bill.findMany({
+    where: { monthYear },
+    include: { unit: { select: { block: true } } },
+  });
+
+  const byBlock: Record<string, { expected: number; collected: number }> = {};
+  const byMethod: Record<string, number> = {};
+
+  for (const b of bills) {
+    const block = b.unit.block;
+    if (!byBlock[block]) byBlock[block] = { expected: 0, collected: 0 };
+    byBlock[block].expected += Number(b.totalAmount);
+    if (b.status === "PAID") byBlock[block].collected += Number(b.totalAmount);
+    if (b.paymentMethod) {
+      byMethod[b.paymentMethod] = (byMethod[b.paymentMethod] || 0) + Number(b.totalAmount);
+    }
+  }
+
+  let text = `📈 <b>Laporan Kutipan — ${monthYear}</b>\n\n`;
+  text += `💰 Jangkaan: RM ${totalExpected.toFixed(2)}\n`;
+  text += `✅ Dikutip: RM ${totalCollected.toFixed(2)}\n`;
+  text += `📊 Kadar Kutipan: ${collectionRate}%\n`;
+  text += `🟡 Tertunggak: ${pendingAgg}\n`;
+  text += `🔴 Lewat: ${overdueAgg}\n`;
+  text += `✅ Lunas: ${paidAgg}\n\n`;
+
+  const blocks = Object.keys(byBlock).sort();
+  if (blocks.length > 0) {
+    text += `<b>Mengikut Blok:</b>\n`;
+    blocks.forEach((blk) => {
+      const rate = byBlock[blk].expected > 0 ? ((byBlock[blk].collected / byBlock[blk].expected) * 100).toFixed(1) : "0";
+      text += `• ${blk}: RM ${byBlock[blk].collected.toFixed(2)} / RM ${byBlock[blk].expected.toFixed(2)} (${rate}%)\n`;
+    });
+    text += `\n`;
+  }
+
+  const methods = Object.keys(byMethod).sort();
+  if (methods.length > 0) {
+    text += `<b>Mengikut Kaedah:</b>\n`;
+    methods.forEach((m) => {
+      text += `• ${m}: RM ${byMethod[m].toFixed(2)}\n`;
+    });
+  }
+
+  await tgSend(chatId, text, { reply_markup: backButton("menu") });
+}
+
+// ── AUDIT ────────────────────────────────────────────────────────────
+async function cmdAudit(chatId: number, page: number) {
+  const limit = 10;
+  const skip = (page - 1) * limit;
+  const [logs, total] = await Promise.all([
+    db.auditLog.findMany({ skip, take: limit, orderBy: { createdAt: "desc" } }),
+    db.auditLog.count(),
+  ]);
+
+  let text = `📋 <b>Audit Log</b>\n\n`;
+  logs.forEach((log: any) => {
+    const date = new Date(log.createdAt).toLocaleDateString("ms-MY", {
+      timeZone: "Asia/Kuala_Lumpur",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    text += `• [${date}] ${log.action}${log.targetId ? ` — ${log.targetId}` : ""}\n`;
+  });
+
+  if (logs.length === 0) text += "Tiada rekod.";
+
+  const totalPages = Math.ceil(total / limit);
+  await tgSend(chatId, text, totalPages > 1 ? { reply_markup: paginationKeyboard(page, totalPages, "audit") } : { reply_markup: backButton("menu") });
+}
+
+// ── DELETE BILL ──────────────────────────────────────────────────────
+async function cmdDeleteBill(query: string, chatId: number) {
+  const bill = await db.bill.findFirst({
+    where: { OR: [{ id: query }, { uuid: { startsWith: query } }] },
+    include: { unit: { select: { block: true, floor: true, unitNo: true } } },
+  });
+
+  if (!bill) {
+    await tgSend(chatId, "❌ Bil tidak dijumpai.");
+    return;
+  }
+
+  await db.bill.delete({ where: { id: bill.id } });
+  await tgSend(chatId, `🗑️ Bil ${bill.uuid.slice(0, 7)} (${bill.unit.block}-${bill.unit.floor}-${bill.unit.unitNo} — ${bill.monthYear}) telah dipadam.`);
+}
+
+// ── MARK PAID ────────────────────────────────────────────────────────
+async function cmdMarkPaid(query: string, chatId: number) {
+  const bill = await db.bill.findFirst({
+    where: { OR: [{ id: query }, { uuid: { startsWith: query } }] },
+    include: { unit: { select: { block: true, floor: true, unitNo: true } } },
+  });
+
+  if (!bill) {
+    await tgSend(chatId, "❌ Bil tidak dijumpai.");
+    return;
+  }
+
+  if (bill.status === "PAID") {
+    await tgSend(chatId, `⚠️ Bil ${bill.uuid.slice(0, 7)} sudah ditandai lunas.`);
+    return;
+  }
+
+  await db.bill.update({
+    where: { id: bill.id },
+    data: { status: "PAID", paidAt: new Date(), paymentMethod: "CASH" },
+  });
+
+  await tgSend(chatId, `✅ Bil ${bill.uuid.slice(0, 7)} (${bill.unit.block}-${bill.unit.floor}-${bill.unit.unitNo} — ${bill.monthYear}) ditandai lunas (CASH).`);
+}
+
+// ── CREATE UNIT (multi-step) ─────────────────────────────────────────
+async function handleCreateUnitStep(chatId: number, text: string, state: ChatState) {
+  const step = state.step || 0;
+  const data = state.data || {};
+
+  const prompts = [
+    "Langkah 2/7: Sila masukkan <b>Tingkat</b> (cth: 1):",
+    "Langkah 3/7: Sila masukkan <b>Nombor Unit</b> (cth: 01):",
+    "Langkah 4/7: Sila masukkan <b>Nama Pemilik</b>:",
+    "Langkah 5/7: Sila masukkan <b>No. Kad Pengenalan</b>:",
+    "Langkah 6/7: Sila masukkan <b>Yuran Bulanan (RM)</b>:",
+    "Langkah 7/7: Sila masukkan <b>Emel</b> untuk akaun penduduk:",
+  ];
+
+  const fields = ["block", "floor", "unitNo", "ownerName", "ownerIc", "monthlyFee", "email"];
+
+  if (step > 0 && step <= fields.length) {
+    const field = fields[step - 1];
+    data[field] = text.trim();
+  }
+
+  if (step >= fields.length) {
+    chatState.delete(chatId);
+
+    try {
+      const existing = await db.unit.findUnique({ where: { ownerIc: data.ownerIc } });
+      if (existing) {
+        await tgSend(chatId, `❌ No. KP ${data.ownerIc} sudah wujud dalam sistem.`);
+        return;
+      }
+
+      const unit = await db.unit.create({
+        data: {
+          block: data.block,
+          floor: data.floor,
+          unitNo: data.unitNo,
+          ownerName: data.ownerName,
+          ownerIc: data.ownerIc,
+          monthlyFee: Number(data.monthlyFee),
+          status: "ACTIVE",
+        },
+      });
+
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.hash("resident123", 12);
+      await db.user.create({
+        data: {
+          email: data.email,
+          passwordHash,
+          role: "RESIDENT",
+          unitId: unit.id,
+        },
+      });
+
+      await tgSend(chatId, `✅ Unit ${unit.block}-${unit.floor}-${unit.unitNo} (${unit.ownerName}) berjaya dicipta.\nEmel akaun: ${data.email}\nKata laluan: resident123`);
+    } catch (err: any) {
+      console.error("Create unit error:", err);
+      await tgSend(chatId, "❌ Gagal mencipta unit. Sila cuba lagi.");
+    }
+    return;
+  }
+
+  chatState.set(chatId, { mode: "awaiting_createunit", step: step + 1, data });
+  await tgSend(chatId, prompts[step]);
+}
+
 // ── HELP ─────────────────────────────────────────────────────────────
 async function cmdHelp(chatId: number, admin: boolean) {
   let text = "🏢 <b>Bot Bayu Condo</b>\n\n";
@@ -1263,9 +1684,16 @@ async function cmdHelp(chatId: number, admin: boolean) {
     text += "<b>Admin:</b>\n";
     text += "• /summary — Ringkasan kutipan\n";
     text += "• /bills <bulan> — Bil mengikut bulan\n";
+    text += "• /payments <bulan> — Senarai pembayaran\n";
+    text += "• /reports <bulan> — Laporan kutipan\n";
+    text += "• /audit — Log audit\n";
     text += "• /unit <unit> — Detail unit (A-1-01)\n";
     text += "• /overdue — Senarai bil lewat\n";
     text += "• /config — Tetapan sistem\n";
+    text += "• /createunit — Cipta unit baharu\n";
+    text += "• /deleteunit <unit> — Padam unit\n";
+    text += "• /deletebill <id> — Padam bil\n";
+    text += "• /markpaid <id> — Tandai lunas (CASH)\n";
     text += "• /listadmins — Senarai admin\n";
     text += "• /addadmin <id> <nama>\n";
     text += "• /removeadmin <id>\n\n";
