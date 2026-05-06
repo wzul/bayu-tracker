@@ -71,9 +71,9 @@ export async function classifyIntent(
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -81,10 +81,12 @@ export async function classifyIntent(
       },
       body: JSON.stringify({
         model: OLLAMA_MODEL,
-        system: systemPrompt,
-        prompt: userPrompt,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
         format: "json",
-        options: { temperature: 0.1, num_predict: 128 },
+        options: { temperature: 0.1 },
         stream: false,
       }),
       signal: controller.signal,
@@ -98,7 +100,7 @@ export async function classifyIntent(
     }
 
     const data = await res.json();
-    const rawResponse: string = data.response || "";
+    const rawResponse: string = data.message?.content || data.response || "";
 
     let parsed: IntentResult | null = null;
     try {
