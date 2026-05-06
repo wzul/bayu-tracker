@@ -97,6 +97,8 @@ services:
       LHDN_CLIENT_ID: ${LHDN_CLIENT_ID}
       LHDN_CLIENT_SECRET: ${LHDN_CLIENT_SECRET}
       LHDN_API_URL: ${LHDN_API_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy

@@ -9,6 +9,7 @@ import {
   generatePlanetOtp,
   clearTelegramOtp,
 } from "./otp";
+import { classifyIntent } from "./intent";
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN;
 
@@ -396,6 +397,75 @@ async function handleMessage(msg: any) {
   // OTP reply handling
   if (hasTelegramOtp(chatId)) {
     await handleOtpReply(chatId, text);
+    return;
+  }
+
+  // AI smart-command routing for natural-language messages
+  if (!text.startsWith("/")) {
+    const session = requireAuth(chatId);
+    const intent = await classifyIntent(text, {
+      isAdmin: isAdmin(chatId),
+      hasSession: !!session,
+      email: session?.email,
+    });
+
+    if (intent) {
+      switch (intent.command) {
+        case "cek":
+          await cmdCek(session?.email || intent.target || "", chatId);
+          return;
+        case "summary":
+          if (isAdmin(chatId)) {
+            await cmdSummary(chatId);
+            return;
+          }
+          break;
+        case "unit":
+          if (isAdmin(chatId) && intent.target) {
+            await cmdUnit(intent.target, chatId);
+            return;
+          }
+          break;
+        case "overdue":
+          if (isAdmin(chatId)) {
+            await cmdOverdue(chatId);
+            return;
+          }
+          break;
+        case "bills":
+          if (isAdmin(chatId)) {
+            const month =
+              intent.target ||
+              new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+            await cmdBillsPaged(chatId, month, 1);
+            return;
+          }
+          break;
+        case "pay":
+          if (session) {
+            await showPayMenu(chatId, session);
+            return;
+          }
+          break;
+        case "history":
+          if (session) {
+            await cmdHistory(chatId, session);
+            return;
+          }
+          break;
+        case "help":
+          await cmdHelp(chatId, isAdmin(chatId));
+          return;
+        case "login":
+          await startOtpFlow(chatId);
+          return;
+        case "menu":
+          await showMainMenu(chatId, isAdmin(chatId));
+          return;
+      }
+    }
+    // No high-confidence intent: fall through to menu
+    await showMainMenu(chatId, isAdmin(chatId));
     return;
   }
 
