@@ -35,9 +35,13 @@ export async function POST(request: Request) {
     }
 
     const event = body.event || body.event_type || "";
-    const purchase = body.purchase || body.data?.purchase || (body.type === "purchase" ? body : {});
+    let purchase = body.purchase || body.data?.purchase;
+    // CHIP may send the purchase object directly as the top-level body
+    if (!purchase?.id && body.id) {
+      purchase = body;
+    }
 
-    console.log("[webhook] CHIP event received:", event, "purchase.status:", purchase.status, "purchase.id:", purchase.id);
+    console.log("[webhook] CHIP event received:", event, "purchase.status:", purchase?.status, "purchase.id:", purchase?.id);
 
     if (!purchase?.id) {
       console.error("[webhook] No purchase.id in body:", JSON.stringify(body).slice(0, 500));
