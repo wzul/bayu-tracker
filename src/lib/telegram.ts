@@ -950,10 +950,11 @@ async function showPayMenu(chatId: number, session: UserSession) {
   const keyboard: any[] = [];
 
   bills.slice(0, 10).forEach((b) => {
-    text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
+    const ref = b.uuid ? ` [${b.uuid.slice(0, 7)}]` : "";
+    text += `• ${b.monthYear}${ref} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
     keyboard.push([
       {
-        text: `💳 Bayar ${b.monthYear} (RM ${Number(b.totalAmount).toFixed(2)})`,
+        text: `💳 Bayar ${b.monthYear}${ref} (RM ${Number(b.totalAmount).toFixed(2)})`,
         callback_data: `pay_${b.id}`,
       },
     ]);
@@ -1023,7 +1024,8 @@ async function cmdCek(phoneOrEmail: string, chatId: number) {
     text += `⚠️ <b>Bil Tertunggak: ${pending.length}</b>\n💰 Jumlah: RM ${totalPending.toFixed(2)}\n\n`;
     pending.slice(0, 5).forEach((b) => {
       const status = b.status === "OVERDUE" ? "🔴 LEWAT" : "🟡 TERTUNGGAK";
-      text += `• ${b.monthYear} — RM ${Number(b.totalAmount).toFixed(2)} — ${status}\n`;
+      const ref = b.uuid ? ` [${b.uuid.slice(0, 7)}]` : "";
+      text += `• ${b.monthYear}${ref} — RM ${Number(b.totalAmount).toFixed(2)} — ${status}\n`;
     });
     if (pending.length > 5) text += `\n...dan ${pending.length - 5} lagi\n`;
   } else {
