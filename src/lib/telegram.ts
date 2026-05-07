@@ -13,6 +13,26 @@ import { classifyIntent } from "./intent";
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN;
 
+let cachedBotUsername: string | null = null;
+let botUsernameFetched = false;
+
+async function getBotUsername(): Promise<string | null> {
+  if (botUsernameFetched) return cachedBotUsername;
+  const t = token();
+  if (!t) { botUsernameFetched = true; return null; }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${t}/getMe`);
+    const data = await res.json();
+    if (data.ok && data.result?.username) {
+      cachedBotUsername = data.result.username;
+    }
+  } catch {
+    // ignore
+  }
+  botUsernameFetched = true;
+  return cachedBotUsername;
+}
+
 // ── In-memory state ─────────────────────────────────────────────────
 interface UserSession {
   userId: string;
@@ -1183,6 +1203,9 @@ async function cmdPayBill(chatId: number, billId: string, session: UserSession) 
     return;
   }
 
+  const botUsername = await getBotUsername();
+  const botParam = botUsername ? `&bot=${encodeURIComponent(botUsername)}` : "";
+
   const chipRes = await fetch(`${chipApiUrl}purchases/`, {
     method: "POST",
     headers: {
@@ -1202,9 +1225,9 @@ async function cmdPayBill(chatId: number, billId: string, session: UserSession) 
           quantity: 1,
         }],
       },
-      success_redirect: `${appUrl}/payment/telegram-success?status=success`,
-      failure_redirect: `${appUrl}/payment/telegram-success?status=failed`,
-      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled`,
+      success_redirect: `${appUrl}/payment/telegram-success?status=success${botParam}`,
+      failure_redirect: `${appUrl}/payment/telegram-success?status=failed${botParam}`,
+      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled${botParam}`,
       success_callback: `${appUrl}/api/webhooks/chip`,
       send_receipt: false,
       due_strict: true,
@@ -1302,6 +1325,9 @@ async function cmdPayAll(chatId: number, session: UserSession) {
     return;
   }
 
+  const botUsername2 = await getBotUsername();
+  const botParam2 = botUsername2 ? `&bot=${encodeURIComponent(botUsername2)}` : "";
+
   const chipRes = await fetch(`${chipApiUrl}purchases/`, {
     method: "POST",
     headers: {
@@ -1321,9 +1347,9 @@ async function cmdPayAll(chatId: number, session: UserSession) {
           quantity: 1,
         })),
       },
-      success_redirect: `${appUrl}/payment/telegram-success?status=success`,
-      failure_redirect: `${appUrl}/payment/telegram-success?status=failed`,
-      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled`,
+      success_redirect: `${appUrl}/payment/telegram-success?status=success${botParam2}`,
+      failure_redirect: `${appUrl}/payment/telegram-success?status=failed${botParam2}`,
+      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled${botParam2}`,
       success_callback: `${appUrl}/api/webhooks/chip`,
       send_receipt: false,
       due_strict: true,
