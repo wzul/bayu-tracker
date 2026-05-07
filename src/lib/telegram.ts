@@ -293,6 +293,12 @@ async function handleCallbackQuery(cb: any) {
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
+  if (data === "pay_all") {
+    const session = await requireAuth(chatId);
+    if (session) await cmdPayAll(chatId, session);
+    else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
+    return;
+  }
   if (data === "history") {
     const session = await requireAuth(chatId);
     if (session) await cmdHistory(chatId, session);
@@ -962,6 +968,11 @@ async function showPayMenu(chatId: number, session: UserSession) {
 
   if (bills.length > 10) text += `\n...dan ${bills.length - 10} lagi\n`;
 
+  if (bills.length > 1) {
+    const total = bills.reduce((s, b) => s + Number(b.totalAmount), 0);
+    keyboard.push([{ text: `💳 Bayar Semua (${bills.length} bil — RM ${total.toFixed(2)})`, callback_data: "pay_all" }]);
+  }
+
   keyboard.push([{ text: "← Kembali", callback_data: "menu" }]);
   await tgSend(chatId, text, { reply_markup: { inline_keyboard: keyboard } });
 }
@@ -1189,9 +1200,9 @@ async function cmdPayBill(chatId: number, billId: string, session: UserSession) 
           quantity: 1,
         }],
       },
-      success_redirect: `${appUrl}/dashboard/payment/success?bill=${bill.id}`,
-      failure_redirect: `${appUrl}/dashboard/payment/failed?bill=${bill.id}`,
-      cancel_redirect: `${appUrl}/dashboard/payment/cancelled?bill=${bill.id}`,
+      success_redirect: `${appUrl}/payment/telegram-success?status=success`,
+      failure_redirect: `${appUrl}/payment/telegram-success?status=failed`,
+      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled`,
       success_callback: `${appUrl}/api/webhooks/chip`,
       send_receipt: false,
       due_strict: true,
@@ -1211,6 +1222,126 @@ async function cmdPayBill(chatId: number, billId: string, session: UserSession) 
   });
 
   const text = `💳 <b>Pembayaran Bil ${bill.monthYear}</b>\n\nJumlah: RM ${newTotalAmount.toFixed(2)}\n\nSila klik pautan di bawah untuk membayar:`;
+  await tgSend(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔗 Bayar Sekarang", url: chipData.checkout_url }],
+        [{ text: "← Kembali", callback_data: "pay_menu" }],
+      ],
+    },
+  });
+}
+
+async function cmdPayAll(chatId: number, session: UserSession) {
+  if (!session.unitId) {
+    await tgSend(chatId, "❌ Tiada unit dihubungkan.");
+    return;
+  }
+
+  const bills = await db.bill.findMany({
+    where: { unitId: session.unitId, status: { in: ["PENDING", "OVERDUE"] } },
+    include: { unit: true },
+    orderBy: { dueDate: "asc" },
+  });
+
+  if (bills.length === 0) {
+    await tgSend(chatId, "✅ Tiada bil tertunggak.", { reply_markup: backButton("menu") });
+    return;
+  }
+
+  const config = await db.config.findFirst();
+  const fixedFeeInRM = Number(config?.gatewayFeeFixed ?? 0) / 100;
+  const gatewayFeePercent = Number(config?.gatewayFeePercent ?? 0);
+
+  // Recalculate gateway fees for each bill
+  for (const b of bills) {
+    const percentFee = Number(b.baseAmount) * (gatewayFeePercent / 100);
+    const total =
+      Number(b.baseAmount) +
+      percentFee -
+      Number(b.discount) +
+      Number(b.adjustment) +
+      Number(b.penaltyAmount);
+    await db.bill.update({
+      where: { id: b.id },
+      data: { additionalFee: percentFee, totalAmount: total },
+    });
+  }
+
+  // Add fixed fee to the first bill (one fixed fee per transaction)
+  const firstBill = bills[0];
+  const firstPercent = Number(firstBill.baseAmount) * (gatewayFeePercent / 100);
+  const firstNewAdditionalFee = firstPercent + fixedFeeInRM;
+  const firstNewTotal =
+    Number(firstBill.baseAmount) +
+    firstNewAdditionalFee -
+    Number(firstBill.discount) +
+    Number(firstBill.adjustment) +
+    Number(firstBill.penaltyAmount);
+  await db.bill.update({
+    where: { id: firstBill.id },
+    data: { additionalFee: firstNewAdditionalFee, totalAmount: firstNewTotal },
+  });
+
+  const updatedBills = await db.bill.findMany({
+    where: { id: { in: bills.map((b) => b.id) } },
+    orderBy: { dueDate: "asc" },
+  });
+
+  const totalAmount = updatedBills.reduce((s, b) => s + Number(b.totalAmount), 0);
+
+  const chipSecret = process.env.CHIP_SECRET_KEY;
+  const chipBrandId = process.env.CHIP_BRAND_ID;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const chipApiUrl = process.env.CHIP_API_URL || "https://gate.chip-in.asia/api/v1/";
+
+  if (!chipSecret || !chipBrandId) {
+    await tgSend(chatId, "❌ Sistem pembayaran tidak dikonfigurasi.");
+    return;
+  }
+
+  const chipRes = await fetch(`${chipApiUrl}purchases/`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${chipSecret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      brand_id: chipBrandId,
+      client: {
+        email: session.email,
+        full_name: firstBill.unit.ownerName,
+      },
+      purchase: {
+        products: updatedBills.map((b) => ({
+          name: `Maintenance ${b.monthYear}`,
+          price: Math.round(Number(b.totalAmount) * 100),
+          quantity: 1,
+        })),
+      },
+      success_redirect: `${appUrl}/payment/telegram-success?status=success`,
+      failure_redirect: `${appUrl}/payment/telegram-success?status=failed`,
+      cancel_redirect: `${appUrl}/payment/telegram-success?status=cancelled`,
+      success_callback: `${appUrl}/api/webhooks/chip`,
+      send_receipt: false,
+      due_strict: true,
+    }),
+  });
+
+  const chipData = await chipRes.json();
+  if (!chipRes.ok) {
+    console.error("CHIP bulk error:", chipData);
+    await tgSend(chatId, "❌ Ralat gateway pembayaran. Sila cuba lagi.");
+    return;
+  }
+
+  const chipPurchaseId = String(chipData.id);
+  await db.bill.updateMany({
+    where: { id: { in: bills.map((b) => b.id) } },
+    data: { chipBillId: chipPurchaseId },
+  });
+
+  const text = `💳 <b>Pembayaran Pukal (${updatedBills.length} bil)</b>\n\nJumlah: RM ${totalAmount.toFixed(2)}\n\nSila klik pautan di bawah untuk membayar:`;
   await tgSend(chatId, text, {
     reply_markup: {
       inline_keyboard: [
