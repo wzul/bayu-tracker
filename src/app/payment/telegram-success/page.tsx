@@ -3,12 +3,34 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        close: () => void;
+        ready: () => void;
+      };
+    };
+  }
+}
+
 function TelegramPaymentContent() {
   const searchParams = useSearchParams();
   const status = searchParams.get("status") || "success";
 
   const isSuccess = status === "success";
   const isCancelled = status === "cancelled";
+
+  function handleClose() {
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.close();
+      return;
+    }
+    if (typeof window.close === "function") {
+      window.close();
+      return;
+    }
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
@@ -53,7 +75,7 @@ function TelegramPaymentContent() {
         )}
 
         <button
-          onClick={() => window.close()}
+          onClick={handleClose}
           className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 w-full"
         >
           Tutup Tab
