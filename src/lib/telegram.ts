@@ -955,12 +955,14 @@ async function showPayMenu(chatId: number, session: UserSession) {
   let text = "💰 <b>Bil Tertunggak</b>\n\n";
   const keyboard: any[] = [];
 
-  bills.slice(0, 10).forEach((b) => {
+  const letters = "ABCDEFGHIJ";
+  bills.slice(0, 10).forEach((b, idx) => {
+    const label = letters[idx] || String(idx + 1);
     const ref = b.uuid ? ` [${b.uuid.slice(0, 7)}]` : "";
-    text += `• ${b.monthYear}${ref} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
+    text += `${label}. ${b.monthYear}${ref} — RM ${Number(b.totalAmount).toFixed(2)}\n`;
     keyboard.push([
       {
-        text: `💳 Bayar ${b.monthYear}${ref} (RM ${Number(b.totalAmount).toFixed(2)})`,
+        text: `💳 Bayar ${label}${ref}`,
         callback_data: `pay_${b.id}`,
       },
     ]);
