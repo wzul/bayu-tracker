@@ -80,6 +80,15 @@ model Session {
   createdAt    DateTime @default(now())
 }
 
+model TelegramSession {
+  chatId            String   @id
+  userId            String
+  email             String
+  unitId            String?
+  role              String
+  authenticatedAt   DateTime @default(now())
+}
+
 model Bill {
   id                   String          @id @default(cuid())
   uuid                 String          @default(uuid()) @unique

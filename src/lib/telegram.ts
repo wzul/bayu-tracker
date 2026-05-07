@@ -22,8 +22,6 @@ interface UserSession {
   authenticatedAt: Date;
 }
 
-const userSessions = new Map<number, UserSession>();
-
 // Multi-step flow state (e.g. awaiting unit search input)
 interface ChatState {
   mode: "awaiting_unit_query" | "awaiting_config_value" | "awaiting_createbill" | "awaiting_createunit";
@@ -86,16 +84,22 @@ export async function tgAnswerCallback(callbackQueryId: string, text?: string) {
 // ── Admin check ──────────────────────────────────────────────────────
 // Admin access is based solely on database User.role — no env var needed.
 // All admin features require logging in first (same flow as residents).
-function isAdmin(chatId: number): boolean {
-  const session = userSessions.get(chatId);
-  return session?.role === "ADMIN";
+async function isAdmin(chatId: number): Promise<boolean> {
+  const sess = await db.telegramSession.findUnique({ where: { chatId: String(chatId) } });
+  return sess?.role === "ADMIN";
 }
 
 // ── Auth helpers ─────────────────────────────────────────────────────
-function requireAuth(chatId: number): UserSession | null {
-  const session = userSessions.get(chatId);
-  if (!session) return null;
-  return session;
+async function requireAuth(chatId: number): Promise<UserSession | null> {
+  const sess = await db.telegramSession.findUnique({ where: { chatId: String(chatId) } });
+  if (!sess) return null;
+  return {
+    userId: sess.userId,
+    email: sess.email,
+    unitId: sess.unitId ?? null,
+    role: sess.role,
+    authenticatedAt: sess.authenticatedAt,
+  };
 }
 
 // ── Inline keyboards ─────────────────────────────────────────────────
@@ -181,8 +185,8 @@ async function handleCallbackQuery(cb: any) {
   // Auth-required callbacks (except menu/help/logout/planet)
   const publicCallbacks = ["menu", "help", "login", "logout"];
   if (!publicCallbacks.includes(data) && !data.startsWith("noop") && !data.startsWith("planet_")) {
-    const session = requireAuth(chatId);
-    if (!session && !isAdmin(chatId)) {
+    const session = await requireAuth(chatId);
+    if (!session && !await isAdmin(chatId)) {
       await tgEditMessage(chatId, messageId, "🔒 Sila log masuk terlebih dahulu.", {
         reply_markup: {
           inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]],
@@ -227,12 +231,23 @@ async function handleCallbackQuery(cb: any) {
       return;
     }
 
-    userSessions.set(chatId, {
-      userId: user.id,
-      email: user.email,
-      unitId: user.unitId,
-      role: user.role,
-      authenticatedAt: new Date(),
+    await db.telegramSession.upsert({
+      where: { chatId: String(chatId) },
+      create: {
+        chatId: String(chatId),
+        userId: user.id,
+        email: user.email,
+        unitId: user.unitId,
+        role: user.role,
+        authenticatedAt: new Date(),
+      },
+      update: {
+        userId: user.id,
+        email: user.email,
+        unitId: user.unitId,
+        role: user.role,
+        authenticatedAt: new Date(),
+      },
     });
 
     await tgEditMessage(
@@ -250,11 +265,11 @@ async function handleCallbackQuery(cb: any) {
 
   // Route callbacks
   if (data === "menu") {
-    await showMainMenu(chatId, isAdmin(chatId));
+    await showMainMenu(chatId, await isAdmin(chatId));
     return;
   }
   if (data === "help") {
-    await cmdHelp(chatId, isAdmin(chatId));
+    await cmdHelp(chatId, await isAdmin(chatId));
     return;
   }
   if (data === "login") {
@@ -262,36 +277,36 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "logout") {
-    userSessions.delete(chatId);
+    await db.telegramSession.deleteMany({ where: { chatId: String(chatId) } });
     await tgEditMessage(chatId, messageId, "👋 Anda telah log keluar. Tekan /start untuk mula.");
     return;
   }
   if (data === "cek") {
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     if (session) await cmdCek(session.email, chatId);
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
   if (data === "pay_menu") {
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     if (session) await showPayMenu(chatId, session);
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
   if (data === "history") {
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     if (session) await cmdHistory(chatId, session);
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
   if (data === "stats") {
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     if (session) await cmdStats(chatId, session);
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
   }
   if (data === "summary") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -299,7 +314,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "unit_search") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -308,7 +323,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "bills_menu") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -316,7 +331,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "config") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -324,7 +339,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "reports_menu") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -332,7 +347,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "payments_menu") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -340,7 +355,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "audit_menu") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -348,7 +363,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "admin_menu") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -356,7 +371,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "overdue") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -364,7 +379,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data === "listadmins") {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.", { reply_markup: backButton("menu") });
       return;
     }
@@ -373,7 +388,7 @@ async function handleCallbackQuery(cb: any) {
   }
   if (data.startsWith("pay_")) {
     const billId = data.replace("pay_", "");
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     if (session) await cmdPayBill(chatId, billId, session);
     else await tgSend(chatId, "❌ Sesi tamat. Sila log masuk semula.", { reply_markup: backButton("menu") });
     return;
@@ -385,7 +400,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data.startsWith("bills_page_")) {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.");
       return;
     }
@@ -395,7 +410,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data.startsWith("payments_page_")) {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.");
       return;
     }
@@ -404,7 +419,7 @@ async function handleCallbackQuery(cb: any) {
     return;
   }
   if (data.startsWith("audit_page_")) {
-    if (!isAdmin(chatId)) {
+    if (!await isAdmin(chatId)) {
       await tgSend(chatId, "❌ Akses ditolak.");
       return;
     }
@@ -425,17 +440,17 @@ async function handleMessage(msg: any) {
   // Multi-step flow handling
   const state = chatState.get(chatId);
   if (state) {
-    if (state.mode === "awaiting_unit_query" && isAdmin(chatId)) {
+    if (state.mode === "awaiting_unit_query" && await isAdmin(chatId)) {
       chatState.delete(chatId);
       await cmdUnit(text, chatId);
       return;
     }
-    if (state.mode === "awaiting_config_value" && isAdmin(chatId) && state.field) {
+    if (state.mode === "awaiting_config_value" && await isAdmin(chatId) && state.field) {
       chatState.delete(chatId);
       await cmdSetConfig(state.field, Number(text), chatId);
       return;
     }
-    if (state.mode === "awaiting_createunit" && isAdmin(chatId)) {
+    if (state.mode === "awaiting_createunit" && await isAdmin(chatId)) {
       await handleCreateUnitStep(chatId, text, state);
       return;
     }
@@ -449,9 +464,9 @@ async function handleMessage(msg: any) {
 
   // AI smart-command routing for natural-language messages
   if (!text.startsWith("/")) {
-    const session = requireAuth(chatId);
+    const session = await requireAuth(chatId);
     const intent = await classifyIntent(text, {
-      isAdmin: isAdmin(chatId),
+      isAdmin: await isAdmin(chatId),
       hasSession: !!session,
       email: session?.email,
     });
@@ -462,25 +477,25 @@ async function handleMessage(msg: any) {
           await cmdCek(session?.email || intent.target || "", chatId);
           return;
         case "summary":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             await cmdSummary(chatId);
             return;
           }
           break;
         case "unit":
-          if (isAdmin(chatId) && intent.target) {
+          if (await isAdmin(chatId) && intent.target) {
             await cmdUnit(intent.target, chatId);
             return;
           }
           break;
         case "overdue":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             await cmdOverdue(chatId);
             return;
           }
           break;
         case "bills":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             const month =
               intent.target ||
               new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
@@ -489,13 +504,13 @@ async function handleMessage(msg: any) {
           }
           break;
         case "payments":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             await cmdPayments(chatId, intent.target || "", 1);
             return;
           }
           break;
         case "reports":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             const month =
               intent.target ||
               new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
@@ -504,32 +519,32 @@ async function handleMessage(msg: any) {
           }
           break;
         case "audit":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             await cmdAudit(chatId, 1);
             return;
           }
           break;
         case "deletebill":
-          if (isAdmin(chatId) && intent.target) {
+          if (await isAdmin(chatId) && intent.target) {
             await cmdDeleteBill(intent.target, chatId);
             return;
           }
           break;
         case "markpaid":
-          if (isAdmin(chatId) && intent.target) {
+          if (await isAdmin(chatId) && intent.target) {
             await cmdMarkPaid(intent.target, chatId);
             return;
           }
           break;
         case "createunit":
-          if (isAdmin(chatId)) {
+          if (await isAdmin(chatId)) {
             chatState.set(chatId, { mode: "awaiting_createunit", step: 0, data: {} });
             await tgSend(chatId, "🏠 <b>Cipta Unit Baharu</b>\n\nLangkah 1/7: Sila masukkan <b>Blok</b> (cth: A):");
             return;
           }
           break;
         case "deleteunit":
-          if (isAdmin(chatId) && intent.target) {
+          if (await isAdmin(chatId) && intent.target) {
             await cmdDeleteUnit(intent.target, chatId);
             return;
           }
@@ -556,22 +571,22 @@ async function handleMessage(msg: any) {
           await cmdContact(chatId);
           return;
         case "logout":
-          userSessions.delete(chatId);
+          await db.telegramSession.deleteMany({ where: { chatId: String(chatId) } });
           await tgSend(chatId, "👋 Anda telah log keluar.");
           return;
         case "help":
-          await cmdHelp(chatId, isAdmin(chatId));
+          await cmdHelp(chatId, await isAdmin(chatId));
           return;
         case "login":
           await startOtpFlow(chatId);
           return;
         case "menu":
-          await showMainMenu(chatId, isAdmin(chatId));
+          await showMainMenu(chatId, await isAdmin(chatId));
           return;
       }
     }
     // No high-confidence intent: fall through to menu
-    await showMainMenu(chatId, isAdmin(chatId));
+    await showMainMenu(chatId, await isAdmin(chatId));
     return;
   }
 
@@ -582,21 +597,21 @@ async function handleMessage(msg: any) {
   switch (cmd) {
     case "/start":
     case "/menu":
-      await showMainMenu(chatId, isAdmin(chatId));
+      await showMainMenu(chatId, await isAdmin(chatId));
       return;
     case "/help":
-      await cmdHelp(chatId, isAdmin(chatId));
+      await cmdHelp(chatId, await isAdmin(chatId));
       return;
     case "/login":
       await startOtpFlow(chatId);
       return;
     case "/logout": {
-      userSessions.delete(chatId);
+      await db.telegramSession.deleteMany({ where: { chatId: String(chatId) } });
       await tgSend(chatId, "👋 Anda telah log keluar.");
       return;
     }
     case "/stats": {
-      const session = requireAuth(chatId);
+      const session = await requireAuth(chatId);
       if (!session) {
         await tgSend(chatId, "🔒 Sila log masuk terlebih dahulu.", {
           reply_markup: { inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]] },
@@ -611,7 +626,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/cek": {
-      const session = requireAuth(chatId);
+      const session = await requireAuth(chatId);
       if (!session) {
         await tgSend(chatId, "🔒 Sila log masuk terlebih dahulu.", {
           reply_markup: { inline_keyboard: [[{ text: "🔑 Log Masuk", callback_data: "login" }]] },
@@ -626,14 +641,14 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/summary":
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
       await cmdSummary(chatId);
       return;
     case "/bills": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -644,7 +659,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/unit": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -656,7 +671,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/overdue": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -664,7 +679,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/config": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -672,7 +687,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/listadmins": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -680,7 +695,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/addadmin": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -692,7 +707,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/removeadmin": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -704,7 +719,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/payments": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -713,7 +728,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/reports": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -722,7 +737,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/audit": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -730,7 +745,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/deletebill": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -742,7 +757,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/markpaid": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -754,7 +769,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/createunit": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -763,7 +778,7 @@ async function handleMessage(msg: any) {
       return;
     }
     case "/deleteunit": {
-      if (!isAdmin(chatId)) {
+      if (!await isAdmin(chatId)) {
         await tgSend(chatId, "❌ Akses ditolak.");
         return;
       }
@@ -777,7 +792,7 @@ async function handleMessage(msg: any) {
   }
 
   // Admin config set commands
-  if (cmd.startsWith("/set") && isAdmin(chatId)) {
+  if (cmd.startsWith("/set") && await isAdmin(chatId)) {
     const fieldMap: Record<string, string> = {
       "/setpenaltydays": "penaltyDays",
       "/setpenaltypercent": "penaltyPercent",
@@ -793,15 +808,15 @@ async function handleMessage(msg: any) {
   }
 
   // Default: if text looks like an email (for admin searching or fallback)
-  if (isAdmin(chatId) && text.includes("@")) {
+  if (await isAdmin(chatId) && text.includes("@")) {
     await cmdUnit(text, chatId);
     return;
   }
 
   // Show menu for authenticated users, auth prompt for guests
-  const session = requireAuth(chatId);
-  if (session || isAdmin(chatId)) {
-    await showMainMenu(chatId, isAdmin(chatId));
+  const session = await requireAuth(chatId);
+  if (session || await isAdmin(chatId)) {
+    await showMainMenu(chatId, await isAdmin(chatId));
   } else {
     await tgSend(chatId, "👋 Selamat datang ke <b>Bot Bayu Condo</b>.\n\nSila log masuk untuk mula.", {
       reply_markup: {
@@ -828,12 +843,12 @@ async function handleOtpReply(chatId: number, text: string) {
     }
     if (text.toLowerCase().startsWith("/start") || text.toLowerCase().startsWith("/menu")) {
       clearTelegramOtp(chatId);
-      await showMainMenu(chatId, isAdmin(chatId));
+      await showMainMenu(chatId, await isAdmin(chatId));
       return;
     }
     if (text.toLowerCase().startsWith("/help")) {
       clearTelegramOtp(chatId);
-      await cmdHelp(chatId, isAdmin(chatId));
+      await cmdHelp(chatId, await isAdmin(chatId));
       return;
     }
     clearTelegramOtp(chatId);
@@ -1760,10 +1775,8 @@ export async function notifyAdmins(text: string) {
 }
 
 export async function notifyResident(email: string, text: string) {
-  // Find any active session for this user
-  userSessions.forEach(async (session, chatId) => {
-    if (session.email === email) {
-      await tgSend(chatId, text);
-    }
-  });
+  const sessions = await db.telegramSession.findMany({ where: { email } });
+  for (const sess of sessions) {
+    await tgSend(Number(sess.chatId), text);
+  }
 }
